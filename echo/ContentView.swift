@@ -32,6 +32,15 @@ struct MenuBarView: View {
 
         Divider()
 
+        Button("Restart echo") {
+            let url = Bundle.main.bundleURL
+            let task = Process()
+            task.launchPath = "/usr/bin/open"
+            task.arguments = [url.path]
+            task.launch()
+            NSApplication.shared.terminate(nil)
+        }
+
         Button("Quit echo") {
             NSApplication.shared.terminate(nil)
         }

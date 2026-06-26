@@ -53,20 +53,25 @@ final class DictationController {
         log.info("Recording stopped (Fn up) — transcribing")
 
         Task {
-            defer {
-                phase = .idle
-                overlay.hide()
-            }
+            let text: String
             do {
                 let start = Date()
-                let text = try await groq.transcribe(fileURL: url)
+                text = try await groq.transcribe(fileURL: url)
                 let dt = Date().timeIntervalSince(start)
                 print(String(format: "📝 [%.2fs] %@", dt, text))
                 log.info("Transcript: \(text, privacy: .public)")
             } catch {
                 print("❌ Transcription failed: \(error.localizedDescription)")
                 log.error("transcribe failed: \(error.localizedDescription, privacy: .public)")
+                phase = .idle
+                overlay.hide()
+                return
             }
+            // Dismiss the overlay before pasting so it isn't the focused-app's
+            // concern, then insert into whatever field the user had focused.
+            phase = .idle
+            overlay.hide()
+            await Paster.paste(text)
         }
     }
 }
