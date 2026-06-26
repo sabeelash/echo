@@ -8,12 +8,16 @@
 import SwiftUI
 import AppKit
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    let dictation = DictationController()
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         Permissions.logStatusOnLaunch()
         Permissions.requestMicrophone()
         Permissions.checkAccessibility(prompt: true)
+        dictation.start()
     }
 }
 
