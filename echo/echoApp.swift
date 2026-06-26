@@ -26,6 +26,12 @@ struct echoApp: App {
             MenuBarView()
         }
 
+        // TEMPORARY stage-1 debug window for the record→transcribe round-trip.
+        Window("Debug", id: "debug") {
+            DebugView()
+        }
+        .windowResizability(.contentSize)
+
         Settings {
             SettingsView()
         }
