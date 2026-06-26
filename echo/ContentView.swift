@@ -30,12 +30,6 @@ struct MenuBarView: View {
             }
         }
 
-        Picker("Language", selection: $settings.languageCode) {
-            ForEach(TranscriptionLanguage.all) { lang in
-                Text(lang.name).tag(lang.code)
-            }
-        }
-
         MicrophonePicker()
 
         Divider()
@@ -59,26 +53,32 @@ struct MenuBarView: View {
 
         Divider()
 
-        Button("Request Permissions") {
-            Permissions.logStatusOnLaunch()
-            Permissions.requestMicrophone()
-            Permissions.checkAccessibility(prompt: true)
-        }
+        Menu("Settings") {
+            Picker("Language", selection: $settings.languageCode) {
+                ForEach(TranscriptionLanguage.all) { lang in
+                    Text(lang.name).tag(lang.code)
+                }
+            }
 
-        Button("Open Debug…") {
-            NSApp.activate(ignoringOtherApps: true)
-            openWindow(id: "debug")
-        }
+            Button("Request Permissions") {
+                Permissions.logStatusOnLaunch()
+                Permissions.requestMicrophone()
+                Permissions.checkAccessibility(prompt: true)
+            }
 
-        Divider()
+            Button("Open Debug…") {
+                NSApp.activate(ignoringOtherApps: true)
+                openWindow(id: "debug")
+            }
 
-        Button("Restart echo") {
-            let url = Bundle.main.bundleURL
-            let task = Process()
-            task.launchPath = "/usr/bin/open"
-            task.arguments = [url.path]
-            task.launch()
-            NSApplication.shared.terminate(nil)
+            Button("Restart echo") {
+                let url = Bundle.main.bundleURL
+                let task = Process()
+                task.launchPath = "/usr/bin/open"
+                task.arguments = [url.path]
+                task.launch()
+                NSApplication.shared.terminate(nil)
+            }
         }
 
         Button("Quit echo") {

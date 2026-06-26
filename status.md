@@ -33,7 +33,7 @@ Built in three isolated stages (each verified before the next).
 ### Stage 2 — Fn hotkey + recording indicator
 - `echo/FnHotkeyMonitor.swift` — detects Fn (Globe) hold/release via `NSEvent` `.flagsChanged` watching the `.function` flag (Fn is **not** a registerable hotkey, so KeyboardShortcuts/Carbon can't bind it; this is not a Carbon tap). Global + local monitors → clean `onPress`/`onRelease` edges (hold-to-talk). Needs Accessibility for the global monitor.
 - `echo/RecordingOverlay.swift` — borderless non-activating `NSPanel` + `NSHostingView`, floats bottom-center over all Spaces, ignores mouse. Pulsing red dot "Recording" → spinner "Transcribing".
-- `echo/DictationController.swift` (`@MainActor @Observable`) — owns recorder/groq/hotkey/overlay; `phase` enum drives the overlay. Hold Fn → record + show overlay; release → stop, transcribe, paste, hide. Instantiated and `start()`ed in `AppDelegate`.
+- `echo/DictationController.swift` (`@MainActor @Observable`) — owns recorder/groq/hotkey/overlay; `phase` enum drives the overlay. Hold Fn → record + show overlay; release → stop, transcribe, paste, hide. `DictationController.shared` singleton (so the menu/icon observe the same `phase`); `start()`ed in `AppDelegate`.
 - **OS gotcha:** set System Settings → Keyboard → "Press 🌐 key to" → **Do Nothing**, or macOS hijacks Fn for emoji/Dictation.
 
 ### Stage 3 — hybrid paste into focused field
@@ -52,12 +52,19 @@ No settings *window* — a Settings scene + pane existed briefly but was removed
   - `languageCode: String` — ISO-639-1 hint (default `en`); `""` = auto-detect.
   - `inputDeviceUID: String?` — chosen mic by Core Audio **UID** (stable across reconnects, unlike the numeric device ID); nil = system default.
   - `lastTranscript: String` — most recent successful transcript, runtime-only (**not** persisted), powers **Copy Last Transcript**.
+  - `lastLatency: TimeInterval?` — round-trip seconds of the last transcription (the `dt` measured in `DictationController`), runtime-only; powers the menu's **Last: 1.2s** readout.
+  - `transcriptionsToday: Int` / `totalWords: Int` — `private(set)`, **persisted**. Vanity/feedback stats shown in the menu.
+  - `recordTranscription(_:latency:)` — single entry point called on every successful transcript: sets `lastTranscript` + `lastLatency`, bumps `transcriptionsToday` (resets at midnight via stored `countDate`), adds word count to `totalWords`. Replaces the old direct `lastTranscript =` assignment.
   - `resolvedAPIKey: String?` — reads `GROQ_KEY` env var (Xcode scheme → **only present under ⌘R, not an `open`ed .app**). No key entry UI yet; this is the only source.
 - `echo/AudioDevices.swift` — Core Audio enumeration of input devices (id/uid/name); filters to devices with ≥1 input channel. `deviceID(forUID:)` resolves a stored UID back to a current device at record time.
 
 ## Menu bar (`echo/ContentView.swift` → `MenuBarView`)
-- Model · Language · Microphone (pickers → submenus, bound to `AppSettings`) · — · Copy Last Transcript (→ pasteboard; disabled when empty) · — · Request Permissions · Open Debug… · — · Restart echo (relaunch via `open`, then terminate) · Quit
+- Status header (phase `Label`: Idle / Recording… / Transcribing…) · "Hold Fn to dictate" hint · — · Model · Microphone (pickers → submenus, bound to `AppSettings`) · — · last-transcript preview (first ~40 chars, one line, shown only when non-empty) · Copy Last Transcript (→ pasteboard; disabled when empty) · — · **Last: 1.2s** · **N today · M words dictated** · — · **Settings** submenu · Quit
+- **Settings** submenu (`Menu("Settings")`) groups the secondary controls: Language picker · Request Permissions · Open Debug… · Restart echo (relaunch via `open`, then terminate). Keeps the top level focused on per-dictation choices (Model, Microphone) + stats.
+- Plain `Text` / phase `Label` rows render as the standard grayed-out (non-interactive) menu labels — used for the header, hint, preview, and stats.
 - `MicrophonePicker` is its own view so it re-reads the device list from Core Audio (`onAppear`) each time the menu opens.
+- The menu observes `DictationController.shared` (now a singleton) for live `phase`; the **`MenuBarExtra` icon itself** swaps by phase via `DictationController.menuBarSymbol` (`waveform.and.mic` → `record.circle` → `ellipsis.circle`).
+- Stats caveat: `transcriptionsToday` only rolls over to 0 on the next dictation after midnight (not on menu-open), so it can briefly show yesterday's count.
 
 ## Useful commands
 
