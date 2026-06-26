@@ -130,12 +130,16 @@ final class AppSettings {
         defaults.set(totalWords, forKey: Keys.totalWords)
     }
 
-    /// The key the network layer should use. Read from the GROQ_KEY env var
-    /// (set in the Xcode scheme); nil if absent.
+    /// The key the network layer should use. Prefers a hardcoded key (personal
+    /// use; works in an `open`ed .app), falling back to the GROQ_KEY env var
+    /// from the Xcode scheme (⌘R only). Replace with Keychain later — see
+    /// keychain-todo.md. Don't commit a real key.
     var resolvedAPIKey: String? {
-        guard let env = ProcessInfo.processInfo.environment["GROQ_KEY"], !env.isEmpty else {
-            return nil
+        let hardcoded = "gsk_PASTE_YOUR_KEY_HERE"
+        if !hardcoded.isEmpty, hardcoded != "gsk_PASTE_YOUR_KEY_HERE" {
+            return hardcoded
         }
-        return env
+        let env = ProcessInfo.processInfo.environment["GROQ_KEY"]
+        return (env?.isEmpty == false) ? env : nil
     }
 }

@@ -55,7 +55,7 @@ No settings *window* — a Settings scene + pane existed briefly but was removed
   - `lastLatency: TimeInterval?` — round-trip seconds of the last transcription (the `dt` measured in `DictationController`), runtime-only; powers the menu's **Last: 1.2s** readout.
   - `transcriptionsToday: Int` / `totalWords: Int` — `private(set)`, **persisted**. Vanity/feedback stats shown in the menu.
   - `recordTranscription(_:latency:)` — single entry point called on every successful transcript: sets `lastTranscript` + `lastLatency`, bumps `transcriptionsToday` (resets at midnight via stored `countDate`), adds word count to `totalWords`. Replaces the old direct `lastTranscript =` assignment.
-  - `resolvedAPIKey: String?` — reads `GROQ_KEY` env var (Xcode scheme → **only present under ⌘R, not an `open`ed .app**). No key entry UI yet; this is the only source.
+  - `resolvedAPIKey: String?` — prefers a **hardcoded** key (personal use; works in an `open`ed .app), falling back to the `GROQ_KEY` **env var** (Xcode scheme → only present under ⌘R), else nil. Placeholder `gsk_PASTE_YOUR_KEY_HERE` counts as unset, so leaving it untouched keeps the env-var path. Temporary — replace with Keychain (read-once-and-cache; see `keychain-todo.md`). **Don't commit a real key.**
 - `echo/AudioDevices.swift` — Core Audio enumeration of input devices (id/uid/name); filters to devices with ≥1 input channel. `deviceID(forUID:)` resolves a stored UID back to a current device at record time.
 
 ## Menu bar (`echo/ContentView.swift` → `MenuBarView`)
