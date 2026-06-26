@@ -7,18 +7,27 @@
 
 import SwiftUI
 
-struct ContentView: View {
+struct MenuBarView: View {
     var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
+        // SettingsLink is the modern (macOS 14+) way to open the Settings
+        // scene. It opens and front-most-activates the window for us, so an
+        // accessory app doesn't need to be .regular to show preferences.
+        SettingsLink {
+            Text("Settings…")
         }
-        .padding()
-    }
-}
+        .keyboardShortcut(",", modifiers: .command)
 
-#Preview {
-    ContentView()
+        Button("Request Permissions") {
+            Permissions.logStatusOnLaunch()
+            Permissions.requestMicrophone()
+            Permissions.checkAccessibility(prompt: true)
+        }
+
+        Divider()
+
+        Button("Quit echo") {
+            NSApplication.shared.terminate(nil)
+        }
+        .keyboardShortcut("q", modifiers: .command)
+    }
 }
