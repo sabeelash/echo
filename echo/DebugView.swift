@@ -35,7 +35,7 @@ final class DebugTranscriber {
     private func startRecording() {
         do {
             transcript = ""
-            try recorder.start()
+            try recorder.start(inputDeviceUID: AppSettings.shared.inputDeviceUID)
             phase = .recording
             status = "Recording… tap Stop when done."
         } catch {
@@ -52,12 +52,24 @@ final class DebugTranscriber {
         }
         phase = .transcribing
         status = "Uploading to Groq…"
+        let settings = AppSettings.shared
+        guard let key = settings.resolvedAPIKey else {
+            status = "No Groq API key — add one in Settings."
+            phase = .idle
+            return
+        }
         Task {
             do {
                 let start = Date()
-                let text = try await groq.transcribe(fileURL: url)
+                let text = try await groq.transcribe(
+                    fileURL: url,
+                    key: key,
+                    model: settings.model.rawValue,
+                    language: settings.languageCode
+                )
                 let elapsed = Date().timeIntervalSince(start)
                 transcript = text
+                AppSettings.shared.lastTranscript = text
                 status = String(format: "Done in %.2fs", elapsed)
                 print("📝 Transcript: \(text)")
                 log.info("Transcript: \(text, privacy: .public)")

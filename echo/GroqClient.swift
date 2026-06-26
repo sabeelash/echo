@@ -3,8 +3,8 @@
 //  echo
 //
 //  Minimal client for Groq's OpenAI-compatible audio transcription endpoint.
-//  The API key is read from the GROQ_KEY environment variable (set in the
-//  Xcode scheme for now; will move to the Keychain later).
+//  The API key, model, and language come from AppSettings (Keychain-backed
+//  key, with a GROQ_KEY env-var fallback for the ⌘R dev flow).
 //
 
 import Foundation
@@ -18,7 +18,7 @@ enum GroqError: Error, LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingKey:
-            return "GROQ_KEY environment variable is not set."
+            return "No Groq API key — add one in Settings."
         case .http(let code, let body):
             return "Groq HTTP \(code): \(body)"
         case .badResponse:
@@ -31,16 +31,18 @@ struct GroqClient {
     private static let log = Logger(subsystem: "sabeel.echo", category: "groq")
 
     private let endpoint = URL(string: "https://api.groq.com/openai/v1/audio/transcriptions")!
-    // Fastest Whisper variant Groq offers — speed is the whole point.
-    private let model = "whisper-large-v3-turbo"
 
     private struct TranscriptionResponse: Decodable { let text: String }
 
     /// Uploads an audio file and returns the transcript text.
-    func transcribe(fileURL: URL, language: String = "en") async throws -> String {
-        guard let key = ProcessInfo.processInfo.environment["GROQ_KEY"], !key.isEmpty else {
-            throw GroqError.missingKey
-        }
+    /// `language` is an ISO-639-1 code; pass "" to let Groq auto-detect.
+    func transcribe(
+        fileURL: URL,
+        key: String,
+        model: String = GroqModel.turbo.rawValue,
+        language: String = "en"
+    ) async throws -> String {
+        guard !key.isEmpty else { throw GroqError.missingKey }
 
         let audio = try Data(contentsOf: fileURL)
         let boundary = "echo-\(UUID().uuidString)"
@@ -59,9 +61,9 @@ struct GroqClient {
         body.append(audio)
         body.append("\r\n")
 
-        // Always send a language hint — skips Groq's auto-detect pass.
         textField("model", model)
-        textField("language", language)
+        // A language hint skips Groq's auto-detect pass (faster); empty == auto.
+        if !language.isEmpty { textField("language", language) }
         textField("response_format", "json")
         body.append("--\(boundary)--\r\n")
 

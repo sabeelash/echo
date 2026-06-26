@@ -10,7 +10,7 @@ import AppKit
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    let dictation = DictationController()
+    let dictation = DictationController.shared
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -24,10 +24,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 @main
 struct echoApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @State private var dictation = DictationController.shared
 
     var body: some Scene {
-        MenuBarExtra("echo", systemImage: "waveform.and.mic") {
+        MenuBarExtra {
             MenuBarView()
+        } label: {
+            // Icon tracks dictation phase: mic (idle) → record (recording) → … (transcribing).
+            Image(systemName: dictation.menuBarSymbol)
         }
 
         // TEMPORARY stage-1 debug window for the record→transcribe round-trip.
@@ -35,9 +39,5 @@ struct echoApp: App {
             DebugView()
         }
         .windowResizability(.contentSize)
-
-        Settings {
-            SettingsView()
-        }
     }
 }

@@ -11,6 +11,7 @@
 //
 
 import AVFoundation
+import AudioToolbox
 import os
 
 final class AudioRecorder {
@@ -21,9 +22,14 @@ final class AudioRecorder {
     private(set) var outputURL: URL?
     private(set) var isRecording = false
 
-    /// Begins capturing the default input into a fresh .m4a file in the temp dir.
-    func start() throws {
+    /// Begins capturing into a fresh .m4a file in the temp dir. `inputDeviceUID`
+    /// selects a specific mic by its Core Audio UID; nil uses the system default.
+    func start(inputDeviceUID: String? = nil) throws {
         let input = engine.inputNode
+        // Route to the chosen device *before* reading the format — the format
+        // (sample rate / channels) depends on which device is active.
+        selectInputDevice(uid: inputDeviceUID, on: input)
+
         // The hardware input format — float PCM. AVAudioFile encodes these
         // buffers into AAC for us as we write them.
         let format = input.outputFormat(forBus: 0)
@@ -55,6 +61,28 @@ final class AudioRecorder {
         try engine.start()
         isRecording = true
         log.info("Recording → \(url.lastPathComponent, privacy: .public)")
+    }
+
+    /// Points the engine's input node at a specific device. No-op (system
+    /// default) when `uid` is nil or the device isn't currently available.
+    private func selectInputDevice(uid: String?, on input: AVAudioInputNode) {
+        guard let uid, let deviceID = AudioDevices.deviceID(forUID: uid) else { return }
+        guard let audioUnit = input.audioUnit else { return }
+
+        var device = deviceID
+        let status = AudioUnitSetProperty(
+            audioUnit,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &device,
+            UInt32(MemoryLayout<AudioDeviceID>.size)
+        )
+        if status == noErr {
+            log.info("Input device → \(uid, privacy: .public)")
+        } else {
+            log.error("Failed to set input device (\(status, privacy: .public)); using default")
+        }
     }
 
     /// Stops capture, finalizes the file, and returns its URL.

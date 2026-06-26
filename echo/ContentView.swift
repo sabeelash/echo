@@ -9,15 +9,55 @@ import SwiftUI
 
 struct MenuBarView: View {
     @Environment(\.openWindow) private var openWindow
+    @State private var settings = AppSettings.shared
+    @State private var dictation = DictationController.shared
 
     var body: some View {
-        // SettingsLink is the modern (macOS 14+) way to open the Settings
-        // scene. It opens and front-most-activates the window for us, so an
-        // accessory app doesn't need to be .regular to show preferences.
-        SettingsLink {
-            Text("Settings…")
+        // Live state + hotkey reminder.
+        switch dictation.phase {
+        case .idle:         Label("Idle", systemImage: "circle")
+        case .recording:    Label("Recording…", systemImage: "record.circle")
+        case .transcribing: Label("Transcribing…", systemImage: "ellipsis.circle")
         }
-        .keyboardShortcut(",", modifiers: .command)
+
+        Text("Hold Fn to dictate")
+
+        Divider()
+
+        Picker("Model", selection: $settings.model) {
+            ForEach(GroqModel.allCases) { model in
+                Text(model.displayName).tag(model)
+            }
+        }
+
+        Picker("Language", selection: $settings.languageCode) {
+            ForEach(TranscriptionLanguage.all) { lang in
+                Text(lang.name).tag(lang.code)
+            }
+        }
+
+        MicrophonePicker()
+
+        Divider()
+
+        if !settings.lastTranscript.isEmpty {
+            Text("“\(transcriptPreview)”")
+        }
+
+        Button("Copy Last Transcript") {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(settings.lastTranscript, forType: .string)
+        }
+        .disabled(settings.lastTranscript.isEmpty)
+
+        Divider()
+
+        if let latency = settings.lastLatency {
+            Text(String(format: "Last: %.1fs", latency))
+        }
+        Text("\(settings.transcriptionsToday) today · \(settings.totalWords) words dictated")
+
+        Divider()
 
         Button("Request Permissions") {
             Permissions.logStatusOnLaunch()
@@ -45,5 +85,31 @@ struct MenuBarView: View {
             NSApplication.shared.terminate(nil)
         }
         .keyboardShortcut("q", modifiers: .command)
+    }
+
+    /// First ~40 characters of the last transcript, collapsed to one line, for
+    /// an at-a-glance peek before copying.
+    private var transcriptPreview: String {
+        let oneLine = settings.lastTranscript
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\n", with: " ")
+        return oneLine.count > 40 ? String(oneLine.prefix(40)) + "…" : oneLine
+    }
+}
+
+/// Mic chooser. Split into its own view so the device list can be (re)read from
+/// Core Audio when the menu opens, rather than once at app launch.
+private struct MicrophonePicker: View {
+    @State private var settings = AppSettings.shared
+    @State private var devices: [AudioInputDevice] = []
+
+    var body: some View {
+        Picker("Microphone", selection: $settings.inputDeviceUID) {
+            Text("System Default").tag(String?.none)
+            ForEach(devices) { device in
+                Text(device.name).tag(Optional(device.uid))
+            }
+        }
+        .onAppear { devices = AudioDevices.inputDevices() }
     }
 }
