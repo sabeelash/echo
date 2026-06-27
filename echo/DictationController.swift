@@ -101,6 +101,9 @@ final class DictationController {
         let language = settings.languageCode
 
         Task {
+            // The recording is a single-use temp file; drop it once the upload
+            // is done, on every exit path, so temp doesn't accumulate .m4a files.
+            defer { try? FileManager.default.removeItem(at: url) }
             let text: String
             do {
                 let start = Date()

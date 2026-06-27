@@ -57,37 +57,58 @@ struct GroqClient {
     ) async throws -> String {
         guard !key.isEmpty else { throw GroqError.missingKey }
 
-        let audio = try Data(contentsOf: fileURL)
         let boundary = "echo-\(UUID().uuidString)"
 
-        var body = Data()
-        func textField(_ name: String, _ value: String) {
-            body.append("--\(boundary)\r\n")
-            body.append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n")
-            body.append("\(value)\r\n")
+        // Assemble the multipart body on disk and upload it from the file, so the
+        // audio is streamed through a small buffer rather than held in memory
+        // twice (once as Data, once copied into the request body).
+        let bodyURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("echo-body-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: bodyURL) }
+
+        guard FileManager.default.createFile(atPath: bodyURL.path, contents: nil) else {
+            throw GroqError.badResponse
+        }
+        let out = try FileHandle(forWritingTo: bodyURL)
+        defer { try? out.close() }
+
+        func write(_ string: String) throws {
+            if let d = string.data(using: .utf8) { try out.write(contentsOf: d) }
+        }
+        func textField(_ name: String, _ value: String) throws {
+            try write("--\(boundary)\r\n")
+            try write("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n")
+            try write("\(value)\r\n")
         }
 
-        // Audio part.
-        body.append("--\(boundary)\r\n")
-        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(fileURL.lastPathComponent)\"\r\n")
-        body.append("Content-Type: audio/m4a\r\n\r\n")
-        body.append(audio)
-        body.append("\r\n")
+        // Audio part header, then the file streamed in chunks.
+        try write("--\(boundary)\r\n")
+        try write("Content-Disposition: form-data; name=\"file\"; filename=\"\(fileURL.lastPathComponent)\"\r\n")
+        try write("Content-Type: audio/m4a\r\n\r\n")
 
-        textField("model", model)
+        let input = try FileHandle(forReadingFrom: fileURL)
+        defer { try? input.close() }
+        while let chunk = try input.read(upToCount: 64 * 1024), !chunk.isEmpty {
+            try out.write(contentsOf: chunk)
+        }
+        try input.close()
+        try write("\r\n")
+
+        try textField("model", model)
         // A language hint skips Groq's auto-detect pass (faster); empty == auto.
-        if !language.isEmpty { textField("language", language) }
-        textField("response_format", "json")
-        body.append("--\(boundary)--\r\n")
+        if !language.isEmpty { try textField("language", language) }
+        try textField("response_format", "json")
+        try write("--\(boundary)--\r\n")
+        try out.close()
 
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-        request.httpBody = body
 
-        Self.log.info("POST \(model, privacy: .public) — \(audio.count, privacy: .public) bytes of audio")
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let bodySize = (try? FileManager.default.attributesOfItem(atPath: bodyURL.path)[.size] as? Int) ?? nil
+        Self.log.info("POST \(model, privacy: .public) — \(bodySize ?? -1, privacy: .public) bytes (multipart body)")
+        let (data, response) = try await URLSession.shared.upload(for: request, fromFile: bodyURL)
 
         guard let http = response as? HTTPURLResponse else { throw GroqError.badResponse }
         guard (200..<300).contains(http.statusCode) else {
