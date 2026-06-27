@@ -87,13 +87,19 @@ struct DebugView: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            Text("echo — debug round-trip")
-                .font(.headline)
+            VStack(spacing: 8) {
+                Image("MenuBarIcon")
+                    .renderingMode(.template)
+                    .foregroundStyle(.red)
+                    .frame(width: 28, height: 28)
+            }
 
             Button(action: model.toggle) {
                 Text(buttonTitle).frame(maxWidth: .infinity)
             }
             .controlSize(.large)
+            .buttonStyle(.borderedProminent)
+            .tint(Color(red: 0x0C / 255, green: 0x1A / 255, blue: 0x2A / 255))
             .keyboardShortcut(.defaultAction)
             .disabled(model.phase == .transcribing)
 
@@ -102,9 +108,15 @@ struct DebugView: View {
                 .foregroundStyle(.secondary)
 
             ScrollView {
-                Text(model.transcript.isEmpty ? "—" : model.transcript)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
+                if model.transcript.isEmpty {
+                    Text("Your transcript will show up here.")
+                        .foregroundStyle(.tertiary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Text(model.transcript)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(.quinary, in: .rect(cornerRadius: 8))
