@@ -65,7 +65,6 @@ final class RecordingOverlay {
 
 private struct RecordingOverlayView: View {
     let controller: DictationController
-    @State private var pulse = false
 
     var body: some View {
         content
@@ -74,46 +73,40 @@ private struct RecordingOverlayView: View {
             .background(.ultraThinMaterial, in: .capsule)
             .overlay(Capsule().strokeBorder(.white.opacity(0.12)))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .onAppear { pulse = true }
     }
 
     @ViewBuilder
     private var content: some View {
         switch controller.phase {
         case .recording:
-            Image("MenuBarIcon")
-                .renderingMode(.template)
-                .foregroundStyle(.red)
-                .frame(width: 18, height: 18)
-                .opacity(pulse ? 0.1 : 1)
-                .scaleEffect(pulse ? 0.85 : 1)
-                .animation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true), value: pulse)
+            PulsingIcon(color: .red, duration: 0.6)
         case .transcribing:
-            ThreeDotsView()
+            PulsingIcon(color: .white, duration: 0.3)
         case .idle:
             EmptyView()
         }
     }
 }
 
-private struct ThreeDotsView: View {
-    @State private var animate = false
+/// The menu bar icon, pulsing its opacity and scale forever.
+private struct PulsingIcon: View {
+    let color: Color
+    let duration: Double
+    @State private var pulse = false
 
     var body: some View {
-        HStack(spacing: 5) {
-            ForEach(0..<3, id: \.self) { i in
-                Circle()
-                    .fill(.white)
-                    .frame(width: 6, height: 6)
-                    .opacity(animate ? 1 : 0.2)
-                    .animation(
-                        .easeInOut(duration: 0.5)
-                            .repeatForever(autoreverses: true)
-                            .delay(Double(i) * 0.15),
-                        value: animate
-                    )
+        Image("MenuBarIcon")
+            .renderingMode(.template)
+            .foregroundStyle(color)
+            .frame(width: 18, height: 18)
+            .opacity(pulse ? 0.1 : 1)
+            .scaleEffect(pulse ? 0.85 : 1)
+            .onAppear {
+                pulse = false
+                withAnimation(.easeInOut(duration: duration).repeatForever(autoreverses: true)) {
+                    pulse = true
+                }
             }
-        }
-        .onAppear { animate = true }
+            .onDisappear { pulse = false }
     }
 }
