@@ -38,5 +38,10 @@ struct echoApp: App {
             DebugView()
         }
         .windowResizability(.contentSize)
+
+        Window("Custom Vocabulary", id: "vocabulary") {
+            VocabularyView()
+        }
+        .windowResizability(.contentSize)
     }
 }

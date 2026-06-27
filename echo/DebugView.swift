@@ -61,12 +61,14 @@ final class DebugTranscriber {
         Task {
             do {
                 let start = Date()
-                let text = try await groq.transcribe(
+                let raw = try await groq.transcribe(
                     fileURL: url,
                     key: key,
                     model: settings.model.rawValue,
-                    language: settings.languageCode
+                    language: settings.languageCode,
+                    prompt: settings.groqPrompt
                 )
+                let text = settings.style.postProcess(raw)
                 let elapsed = Date().timeIntervalSince(start)
                 transcript = text
                 AppSettings.shared.lastTranscript = text

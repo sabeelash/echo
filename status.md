@@ -27,7 +27,8 @@ Built in three isolated stages (each verified before the next).
 
 ### Stage 1 — record → transcribe round-trip
 - `echo/AudioRecorder.swift` — `AVAudioEngine` taps the mic, writes straight to **M4A (AAC)** in the temp dir. `start(inputDeviceUID:)` / `stop() -> URL`. Routes the input node to the chosen device (see Settings → Microphone) **before** reading the format, since sample rate/channels depend on the active device; falls back to system default if `uid` is nil or unplugged.
-- `echo/GroqClient.swift` — multipart upload to `https://api.groq.com/openai/v1/audio/transcriptions`. `transcribe(fileURL:key:model:language:)` takes key/model/language as params (no longer hardcoded); callers pass them from `AppSettings`. A non-empty `language` is sent as a hint (skips auto-detect); empty string = auto. Throws descriptive `GroqError` (missing key / HTTP code+body / decode failure).
+- `echo/GroqClient.swift` — multipart upload to `https://api.groq.com/openai/v1/audio/transcriptions`. `transcribe(fileURL:key:model:language:prompt:)` takes key/model/language/prompt as params (no longer hardcoded); callers pass them from `AppSettings`. A non-empty `language` is sent as a hint (skips auto-detect); empty string = auto. A non-empty `prompt` is sent as the Groq `prompt` field (vocabulary + style steering — see **Transcription prompt** below); empty = omitted. Throws descriptive `GroqError` (missing key / HTTP code+body / decode failure).
+  - **Groq `/audio/transcriptions` params** (reference): `file`/`url` (one required), `model` (required: `whisper-large-v3` / `whisper-large-v3-turbo`), `language` (ISO-639-1), `prompt` (≤224 tokens, style/spelling bias — **not** instruction-following), `response_format` (`json`/`verbose_json`/`text`, echo uses `json`), `temperature` (0–1, echo leaves at default 0), `timestamp_granularities[]` (needs `verbose_json`, unused). Files ≤25MB free / 100MB dev tier; downsampled to 16kHz mono server-side. Only `prompt` was worth wiring up — the rest are defaults or irrelevant to a paste-the-string flow.
 - `echo/DebugView.swift` — **temporary** debug `Window(id: "debug")` with a Record/Stop button driving the round-trip; prints transcript to console + shows it. Kept as a known-good fallback. Opened via menu bar **Open Debug…**. Delete once stage 2/3 are trusted.
 
 ### Stage 2 — Fn hotkey + recording indicator
@@ -44,6 +45,23 @@ Built in three isolated stages (each verified before the next).
   - Edge case: a native control that honors the AX write but doesn't expose a char count routes through clipboard instead (correct, slightly slower). All standard AppKit text controls expose the count, so this is rare. Reading back the value text would close it but pays the expensive copy we're avoiding.
 - Rationale: AX is **not** meaningfully faster than clipboard — its real win is not destroying the user's clipboard. Paste latency is negligible vs upload+inference, so optimize paste for reliability, not speed.
 - Tunable: the 150ms restore delay is racy — too short → pastes old clipboard; too long → feels laggy.
+
+## Transcription prompt (vocabulary + style)
+
+echo sends Groq a `prompt` to steer output. Key fact: **Whisper's prompt is conditioning text treated as if it were the transcript immediately preceding the audio — it mimics the prompt's *style*, it does not follow instructions.** Writing "remove profanity" or "format as bullets" does nothing (and can leak into output). It's a *soft bias*, never a guarantee; Groq looks at roughly the last 224 tokens.
+
+`AppSettings.groqPrompt` assembles what gets sent: the user's **vocabulary** terms followed by the selected **style** exemplar, space-joined (vocab dropped if empty).
+
+- **Custom Vocabulary** (`vocabularyPrompt: String`, persisted) — free-text names/jargon/acronyms echo should spell correctly (e.g. `echo, Groq, SwiftUI, Sabeel, kAXSelectedTextAttribute`). Edited in `echo/VocabularyView.swift` — a 400×300 `Window(id: "vocabulary")` styled like the Debug panel (red template `MenuBarIcon` at top, title, caption, `TextEditor` with placeholder + 224-token note). Opened via menu **Settings → Custom Vocabulary…**. Edits write straight through to `AppSettings` (no Save button).
+  - Placeholder alignment gotcha: the `TextEditor` has `.padding(8)` and ~5pt internal line-fragment padding, so the placeholder overlay pads `13` horizontal / `8` vertical to sit on the first text row. If insets drift on another display, switch to a `ZStack` sharing the same text container.
+- **Style** (`style: TranscriptionStyle`, persisted, default `.professional`) — menu picker under Model. Two cases, each with an `exemplar` written *in* its own style (since Whisper mimics):
+  - `.professional` — proper-case, punctuated exemplar → clean sentences. Leaves Groq output untouched in post.
+  - `.casual` — all-lowercase exemplar → relaxed output. **Plus deterministic post-processing**: `postProcess(_:)` force-lowercases the whole transcript (`text.lowercased()`) because the prompt bias alone can't stop Whisper capitalizing "I" / proper nouns / sentence starts. Trade-off: also lowercases vocab terms (`SwiftUI` → `swiftui`), consistent with "no capitalization at all."
+  - Applied in `DictationController` (real dictation) and `DebugView` (round-trip) right after `transcribe` returns, before paste/record, via `style.postProcess(raw)`.
+
+**What the prompt can / can't do (for future styles):**
+- *Cheap & reliable (prompt bias ± regex/post-process):* casual/professional casing (done), filler-word removal (`um`/`uh`/`like` — best with a regex sweep, not just bias), numbers-as-digits, strip-trailing-period.
+- *Not possible via prompt — needs a second LLM pass:* bullet points, email formatting, grammar rephrase, summarize, translate. These mean transcribe → Groq `llama-*` cleanup → paste, adding a ~200–500ms round-trip that cuts against echo's "fastest" goal. Gate behind an explicit style if ever added; **not** a default. Next easy win considered: **filler-word removal** (not yet built).
 
 ## Speed optimizations (latency)
 
@@ -70,6 +88,7 @@ No settings *window* — a Settings scene + pane existed briefly but was removed
   - `model: GroqModel` — `whisper-large-v3-turbo` (default) vs `whisper-large-v3`.
   - `languageCode: String` — ISO-639-1 hint (default `en`); `""` = auto-detect.
   - `inputDeviceUID: String?` — chosen mic by Core Audio **UID** (stable across reconnects, unlike the numeric device ID); nil = system default.
+  - `vocabularyPrompt: String` / `style: TranscriptionStyle` — **persisted**; feed the Groq `prompt`. `groqPrompt` combines them (see **Transcription prompt** above). `TranscriptionStyle` (`.professional` default / `.casual`) carries an `exemplar` (appended to the prompt) and `postProcess(_:)` (casual force-lowercases).
   - `lastTranscript: String` — most recent successful transcript, runtime-only (**not** persisted), powers **Copy Last Transcript**.
   - `lastLatency: TimeInterval?` — round-trip seconds of the last transcription (the `dt` measured in `DictationController`), runtime-only; powers the menu's **Last: 1.2s** readout.
   - `transcriptionsToday: Int` / `totalWords: Int` — `private(set)`, **persisted**. Vanity/feedback stats shown in the menu.
@@ -78,8 +97,8 @@ No settings *window* — a Settings scene + pane existed briefly but was removed
 - `echo/AudioDevices.swift` — Core Audio enumeration of input devices (id/uid/name); filters to devices with ≥1 input channel. `deviceID(forUID:)` resolves a stored UID back to a current device at record time.
 
 ## Menu bar (`echo/ContentView.swift` → `MenuBarView`)
-- Status header (phase `Label`: Idle / Recording… / Transcribing…) · "Hold Fn to dictate" hint · — · Model · Microphone (pickers → submenus, bound to `AppSettings`) · — · last-transcript preview (first ~40 chars, one line, shown only when non-empty) · Copy Last Transcript (→ pasteboard; disabled when empty) · — · **Last: 1.2s** · **N today · M words dictated** · — · **Settings** submenu · Quit
-- **Settings** submenu (`Menu("Settings")`) groups the secondary controls: Language picker · Request Permissions · Open Debug… · **Restart Echo** (relaunch via `open`, then terminate). Keeps the top level focused on per-dictation choices (Model, Microphone) + stats. Top-level quit button is **Quit Echo**.
+- Status header (phase `Label`: Idle / Recording… / Transcribing…) · "Hold Fn to dictate" hint · — · Model · **Style** · Microphone (pickers → submenus, bound to `AppSettings`) · — · last-transcript preview (first ~40 chars, one line, shown only when non-empty) · Copy Last Transcript (→ pasteboard; disabled when empty) · — · **Last: 1.2s** · **N today · M words dictated** · — · **Settings** submenu · Quit
+- **Settings** submenu (`Menu("Settings")`) groups the secondary controls: Language picker · Request Permissions · **Custom Vocabulary…** (opens `Window(id: "vocabulary")`) · Open Debug… · **Restart Echo** (relaunch via `open`, then terminate). Keeps the top level focused on per-dictation choices (Model, Style, Microphone) + stats. Top-level quit button is **Quit Echo**.
 - Plain `Text` / phase `Label` rows render as the standard grayed-out (non-interactive) menu labels — used for the header, hint, preview, and stats.
 - `MicrophonePicker` is its own view so it re-reads the device list from Core Audio (`onAppear`) each time the menu opens.
 - The menu observes `DictationController.shared` (singleton) for live `phase`, surfaced as the in-menu **status header** (`Label`: `circle` Idle / `record.circle` Recording… / `ellipsis.circle` Transcribing…). The `MenuBarExtra` icon itself is a **static custom asset** `Image("MenuBarIcon")` (set in `echoApp.swift`) — it does **not** change with phase. `DictationController.menuBarSymbol` exists but is currently unused (left over from the earlier phase-swapping icon).

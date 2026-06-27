@@ -99,6 +99,8 @@ final class DictationController {
         }
         let model = settings.model.rawValue
         let language = settings.languageCode
+        let prompt = settings.groqPrompt
+        let style = settings.style
 
         Task {
             // The recording is a single-use temp file; drop it once the upload
@@ -107,9 +109,10 @@ final class DictationController {
             let text: String
             do {
                 let start = Date()
-                text = try await groq.transcribe(
-                    fileURL: url, key: key, model: model, language: language
+                let raw = try await groq.transcribe(
+                    fileURL: url, key: key, model: model, language: language, prompt: prompt
                 )
+                text = style.postProcess(raw)
                 let dt = Date().timeIntervalSince(start)
                 log.info("Transcribed in \(dt, privacy: .public)s: \(text, privacy: .private)")
                 AppSettings.shared.recordTranscription(text, latency: dt)

@@ -49,11 +49,14 @@ struct GroqClient {
 
     /// Uploads an audio file and returns the transcript text.
     /// `language` is an ISO-639-1 code; pass "" to let Groq auto-detect.
+    /// `prompt` biases spelling/style toward provided terms (names, jargon);
+    /// Groq caps it at 224 tokens. Pass "" to omit it.
     func transcribe(
         fileURL: URL,
         key: String,
         model: String = GroqModel.turbo.rawValue,
-        language: String = "en"
+        language: String = "en",
+        prompt: String = ""
     ) async throws -> String {
         guard !key.isEmpty else { throw GroqError.missingKey }
 
@@ -97,6 +100,8 @@ struct GroqClient {
         try textField("model", model)
         // A language hint skips Groq's auto-detect pass (faster); empty == auto.
         if !language.isEmpty { try textField("language", language) }
+        // Vocabulary hint to bias spelling of names/jargon; empty == omit.
+        if !prompt.isEmpty { try textField("prompt", prompt) }
         try textField("response_format", "json")
         try write("--\(boundary)--\r\n")
         try out.close()

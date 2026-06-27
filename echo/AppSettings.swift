@@ -53,6 +53,45 @@ struct TranscriptionLanguage: Identifiable, Hashable {
     ]
 }
 
+/// Output style echo biases Groq toward. Whisper mimics the style of its
+/// `prompt` rather than obeying instructions, so each case's `exemplar` is
+/// written *in* the style it wants out — proper case + punctuation for
+/// professional, all-lowercase for casual.
+enum TranscriptionStyle: String, CaseIterable, Identifiable {
+    case professional
+    case casual
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .professional: return "Professional"
+        case .casual: return "Casual"
+        }
+    }
+
+    /// Appended to the Groq `prompt` to steer capitalization/punctuation.
+    var exemplar: String {
+        switch self {
+        case .professional:
+            return "The following is a professional transcript with proper capitalization, punctuation, and complete sentences."
+        case .casual:
+            return "here's a casual transcript with no capitalization and relaxed punctuation just lowercase text"
+        }
+    }
+
+    /// Deterministic cleanup the prompt bias can't guarantee. Whisper keeps
+    /// capitalizing "I" and proper nouns however the prompt is phrased, so
+    /// casual force-lowercases the whole transcript; professional leaves
+    /// Groq's output untouched.
+    func postProcess(_ text: String) -> String {
+        switch self {
+        case .professional: return text
+        case .casual: return text.lowercased()
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class AppSettings {
@@ -62,6 +101,8 @@ final class AppSettings {
         static let languageCode = "languageCode"
         static let model = "model"
         static let inputDeviceUID = "inputDeviceUID"
+        static let vocabularyPrompt = "vocabularyPrompt"
+        static let style = "style"
         static let transcriptionsToday = "transcriptionsToday"
         static let transcriptionsDate = "transcriptionsDate"
         static let totalWords = "totalWords"
@@ -81,6 +122,25 @@ final class AppSettings {
     /// Stable UID of the chosen input device; nil means the system default.
     var inputDeviceUID: String? {
         didSet { defaults.set(inputDeviceUID, forKey: Keys.inputDeviceUID) }
+    }
+
+    /// Optional vocabulary hint sent to Groq as the `prompt` field — names,
+    /// jargon, and acronyms echo should spell correctly. Groq caps it at 224
+    /// tokens; empty omits it. Persisted.
+    var vocabularyPrompt: String {
+        didSet { defaults.set(vocabularyPrompt, forKey: Keys.vocabularyPrompt) }
+    }
+
+    /// Casual vs. professional output styling. Persisted.
+    var style: TranscriptionStyle {
+        didSet { defaults.set(style.rawValue, forKey: Keys.style) }
+    }
+
+    /// The full `prompt` echo sends to Groq: the user's vocabulary terms (if
+    /// any) followed by the selected style's exemplar, which Whisper mimics.
+    var groqPrompt: String {
+        let vocab = vocabularyPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        return [vocab, style.exemplar].filter { !$0.isEmpty }.joined(separator: " ")
     }
 
     /// Most recent successful transcript, surfaced by the menu's "Copy Last
@@ -106,6 +166,9 @@ final class AppSettings {
         self.model = defaults.string(forKey: Keys.model)
             .flatMap(GroqModel.init(rawValue:)) ?? .turbo
         self.inputDeviceUID = defaults.string(forKey: Keys.inputDeviceUID)
+        self.vocabularyPrompt = defaults.string(forKey: Keys.vocabularyPrompt) ?? ""
+        self.style = defaults.string(forKey: Keys.style)
+            .flatMap(TranscriptionStyle.init(rawValue:)) ?? .professional
         self.transcriptionsToday = defaults.integer(forKey: Keys.transcriptionsToday)
         self.totalWords = defaults.integer(forKey: Keys.totalWords)
         self.countDate = defaults.object(forKey: Keys.transcriptionsDate) as? Date ?? Date()

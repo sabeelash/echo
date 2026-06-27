@@ -30,6 +30,12 @@ struct MenuBarView: View {
             }
         }
 
+        Picker("Style", selection: $settings.style) {
+            ForEach(TranscriptionStyle.allCases) { style in
+                Text(style.displayName).tag(style)
+            }
+        }
+
         MicrophonePicker()
 
         Divider()
@@ -64,6 +70,11 @@ struct MenuBarView: View {
                 Permissions.logStatusOnLaunch()
                 Permissions.requestMicrophone()
                 Permissions.checkAccessibility(prompt: true)
+            }
+
+            Button("Custom Vocabulary…") {
+                NSApp.activate(ignoringOtherApps: true)
+                openWindow(id: "vocabulary")
             }
 
             Button("Open Debug…") {
