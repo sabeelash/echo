@@ -43,9 +43,10 @@ These are the techniques that make echo faster than alternatives:
 - Declare a **critical process activity** in macOS during dictation to prevent throttling
 - Animate overlay dismissal after paste
 
-Planned (not yet implemented):
-- Time-stretch audio to 1.5× speed before upload (for long recordings)
-- Voice activity detection (VAD) trim before upload
+Evaluated and **dropped** (see `status.md` → Speed optimizations for the numbers):
+- ~~Time-stretch audio to 1.5× speed before upload~~ — adds ~100–300ms of offline render + re-encode to save ~17ms; net loss.
+- ~~Voice activity detection (VAD) trim before upload~~ — saves ~2ms and forces a re-encode onto the critical path; net loss.
+- Both attack inference time, but Groq turbo (~200× real-time) makes inference ~50ms — not the bottleneck. The dominant slice is **network RTT + request overhead**; the only unimplemented idea that targets it is **streaming/chunked upload during recording**.
 
 ## Architecture
 

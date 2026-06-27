@@ -34,6 +34,19 @@ struct GroqClient {
 
     private struct TranscriptionResponse: Decodable { let text: String }
 
+    /// Opens a TLS/TCP connection to Groq ahead of the upload so the POST that
+    /// follows reuses a warm socket from `URLSession.shared`'s pool instead of
+    /// paying the handshake (~2-3 round trips) on the critical path after the
+    /// user releases Fn. Fire-and-forget: a HEAD to the endpoint 405s, but the
+    /// connection it establishes is what we're after, so the result is ignored.
+    func prewarm() {
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "HEAD"
+        request.timeoutInterval = 5
+        URLSession.shared.dataTask(with: request) { _, _, _ in }.resume()
+        Self.log.debug("prewarming Groq connection")
+    }
+
     /// Uploads an audio file and returns the transcript text.
     /// `language` is an ISO-639-1 code; pass "" to let Groq auto-detect.
     func transcribe(

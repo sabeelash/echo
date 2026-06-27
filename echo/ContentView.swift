@@ -71,7 +71,7 @@ struct MenuBarView: View {
                 openWindow(id: "debug")
             }
 
-            Button("Restart echo") {
+            Button("Restart Echo") {
                 let url = Bundle.main.bundleURL
                 let task = Process()
                 task.launchPath = "/usr/bin/open"
@@ -81,7 +81,7 @@ struct MenuBarView: View {
             }
         }
 
-        Button("Quit echo") {
+        Button("Quit Echo") {
             NSApplication.shared.terminate(nil)
         }
         .keyboardShortcut("q", modifiers: .command)

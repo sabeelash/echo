@@ -43,6 +43,23 @@ Built in three isolated stages (each verified before the next).
 - Rationale: AX is **not** meaningfully faster than clipboard — its real win is not destroying the user's clipboard. Paste latency is negligible vs upload+inference, so optimize paste for reliability, not speed.
 - Tunable: the 150ms restore delay is racy — too short → pastes old clipboard; too long → feels laggy.
 
+## Speed optimizations (latency)
+
+Both live in the `beginRecording` → release → paste cycle and target the overhead *around* Groq inference (which dominates total latency). Neither sits on the critical release→paste path, so neither adds latency.
+
+- **Pre-warm the Groq connection** — `GroqClient.prewarm()` fires a fire-and-forget `HEAD` on `URLSession.shared` to the transcriptions endpoint. The response is irrelevant (it 405s); the point is the TLS/TCP connection it opens lands in the shared session's pool, so the real `POST` on release reuses a warm socket instead of paying a ~2–3 RTT handshake. Called from `DictationController.beginRecording()`, so it warms *while the user is still speaking*. `resume()` is non-blocking, so it doesn't delay record start.
+  - Win is biggest on the **first dictation after idle**; back-to-back dictations already reuse a live socket (URLSession keep-alive), so the readout won't change there. To observe: dictate, wait ~60s+, compare cold-vs-warm `Last: X.Xs`.
+  - No regression risk: Groq serves **HTTP/2** (multiplexed, no head-of-line blocking between a lingering HEAD and the POST); worst case URLSession opens a second connection (warm-up wasted, not slower).
+- **Critical process activity** — `DictationController.beginActivity()` / `endActivity()` wrap `ProcessInfo.beginActivity(options: [.userInitiated, .latencyCritical])`. echo is a menu-bar app with no focused window → prime App Nap target; this stops macOS throttling the audio engine / network mid-dictation. Held for the whole hold→transcribe→paste cycle; `endActivity()` is called on **every** exit path (record-start failure, stop-returns-nil, no API key, transcribe failure, post-paste) so the token never leaks.
+  - This is **jitter/tail-latency insurance**, not a consistent X ms saved — it removes occasional throttled bad runs, won't show as a number on good runs.
+
+### Evaluated and dropped — time-stretch & VAD trim
+Both were listed as "planned" in CLAUDE.md, evaluated, and **rejected**. They predate knowing how fast Groq turbo is: `whisper-large-v3-turbo` runs at **~200× real-time**, so inference is already ~50ms for a 10s clip (~300ms for 60s) and is **not** the bottleneck — network RTT + Groq's fixed per-request overhead is. Both features attack the duration-dependent slice (inference) while adding cost on the critical release→paste path.
+
+- **Time-stretch 1.5×** (`AVAudioUnitTimePitch` offline render → re-encode): saves ~17ms on a 10s clip (~100ms at 60s) but adds ~100–300ms of offline render + AAC re-encode after release. **Net loss** for typical clips, ~wash even for long ones.
+- **VAD trim**: hold-to-talk already has minimal leading/trailing silence, so trimming saves ~2ms. Worse, the current recorder encodes AAC **during** recording inside the tap (overlapped, effectively free); any trim approach needs raw PCM and re-encodes **at stop**, moving the full ~30–80ms encode **onto** the critical path. **Net loss.**
+- Conclusion: don't re-add these. The remaining latency is **network RTT + request overhead** — addressed by pre-warm above. The only duration-style idea that attacks the *dominant* (network) slice is **streaming/chunked upload during recording** (upload mostly done by release); not yet implemented.
+
 ## Settings (`echo/AppSettings.swift`)
 
 No settings *window* — a Settings scene + pane existed briefly but was removed (overkill for a personal app). All config lives in the menu bar instead.

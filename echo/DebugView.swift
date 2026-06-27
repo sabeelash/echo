@@ -71,12 +71,10 @@ final class DebugTranscriber {
                 transcript = text
                 AppSettings.shared.lastTranscript = text
                 status = String(format: "Done in %.2fs", elapsed)
-                print("📝 Transcript: \(text)")
-                log.info("Transcript: \(text, privacy: .public)")
+                log.info("Transcript: \(text, privacy: .private)")
             } catch {
                 transcript = ""
                 status = "Error: \(error.localizedDescription)"
-                print("❌ Transcription failed: \(error.localizedDescription)")
                 log.error("transcribe failed: \(error.localizedDescription, privacy: .public)")
             }
             phase = .idle

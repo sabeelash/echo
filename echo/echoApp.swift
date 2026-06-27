@@ -30,8 +30,7 @@ struct echoApp: App {
         MenuBarExtra {
             MenuBarView()
         } label: {
-            // Icon tracks dictation phase: mic (idle) → record (recording) → … (transcribing).
-            Image(systemName: dictation.menuBarSymbol)
+            Image("MenuBarIcon")
         }
 
         // TEMPORARY stage-1 debug window for the record→transcribe round-trip.
