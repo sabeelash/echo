@@ -32,14 +32,16 @@ Built in three isolated stages (each verified before the next).
 
 ### Stage 2 — Fn hotkey + recording indicator
 - `echo/FnHotkeyMonitor.swift` — detects Fn (Globe) hold/release via `NSEvent` `.flagsChanged` watching the `.function` flag (Fn is **not** a registerable hotkey, so KeyboardShortcuts/Carbon can't bind it; this is not a Carbon tap). Global + local monitors → clean `onPress`/`onRelease` edges (hold-to-talk). Needs Accessibility for the global monitor.
-- `echo/RecordingOverlay.swift` — borderless non-activating `NSPanel` + `NSHostingView`, floats bottom-center over all Spaces, ignores mouse. Pulsing red dot "Recording" → spinner "Transcribing".
+- `echo/RecordingOverlay.swift` — borderless non-activating `NSPanel` + `NSHostingView`, floats bottom-center over all Spaces, ignores mouse. `PulsingIcon` component renders `Image("MenuBarIcon")` as a template: red at 0.6s period (recording) → white at 0.3s period (transcribing). No text labels.
 - `echo/DictationController.swift` (`@MainActor @Observable`) — owns recorder/groq/hotkey/overlay; `phase` enum drives the overlay. Hold Fn → record + show overlay; release → stop, transcribe, paste, hide. `DictationController.shared` singleton (so the menu/icon observe the same `phase`); `start()`ed in `AppDelegate`.
 - **OS gotcha:** set System Settings → Keyboard → "Press 🌐 key to" → **Do Nothing**, or macOS hijacks Fn for emoji/Dictation.
 
 ### Stage 3 — hybrid paste into focused field
 - `echo/Paster.swift` — `Paster.paste(_:)`:
-  1. **AX first** — system-wide focused element, set `kAXSelectedTextAttribute` (inserts at caret, **no clipboard clobber**); only when the attribute is settable.
+  1. **AX first** — system-wide focused element, set `kAXSelectedTextAttribute` (inserts at caret, **no clipboard clobber**); only when the attribute is settable **and the write is verified** (see below).
   2. **Clipboard fallback** — snapshot pasteboard (all items/types) → write text → synth ⌘V (`CGEvent`, keycode `0x09` + `.maskCommand`, `.cghidEventTap`) → wait **150ms** → restore. Covers Electron/web/terminals.
+- **Browser paste bug + fix (must verify the AX write):** Chrome and WebKit web views report `kAXSelectedTextAttribute` as *settable* and `AXUIElementSetAttributeValue` returns `.success`, but the write is **silently dropped** — nothing lands in the field. The old code trusted the return code, declared success, and never reached the clipboard fallback → **nothing pasted in the browser**. Fix: snapshot `kAXNumberOfCharactersAttribute` before/after the set and require it grew (`after > before`); otherwise return `false` so the clipboard `⌘V` path runs. Use the *char count* (an `Int`), not full `kAXValueAttribute`, so verification doesn't copy an entire large document's text on every paste.
+  - Edge case: a native control that honors the AX write but doesn't expose a char count routes through clipboard instead (correct, slightly slower). All standard AppKit text controls expose the count, so this is rare. Reading back the value text would close it but pays the expensive copy we're avoiding.
 - Rationale: AX is **not** meaningfully faster than clipboard — its real win is not destroying the user's clipboard. Paste latency is negligible vs upload+inference, so optimize paste for reliability, not speed.
 - Tunable: the 150ms restore delay is racy — too short → pastes old clipboard; too long → feels laggy.
 
@@ -77,11 +79,30 @@ No settings *window* — a Settings scene + pane existed briefly but was removed
 
 ## Menu bar (`echo/ContentView.swift` → `MenuBarView`)
 - Status header (phase `Label`: Idle / Recording… / Transcribing…) · "Hold Fn to dictate" hint · — · Model · Microphone (pickers → submenus, bound to `AppSettings`) · — · last-transcript preview (first ~40 chars, one line, shown only when non-empty) · Copy Last Transcript (→ pasteboard; disabled when empty) · — · **Last: 1.2s** · **N today · M words dictated** · — · **Settings** submenu · Quit
-- **Settings** submenu (`Menu("Settings")`) groups the secondary controls: Language picker · Request Permissions · Open Debug… · Restart echo (relaunch via `open`, then terminate). Keeps the top level focused on per-dictation choices (Model, Microphone) + stats.
+- **Settings** submenu (`Menu("Settings")`) groups the secondary controls: Language picker · Request Permissions · Open Debug… · **Restart Echo** (relaunch via `open`, then terminate). Keeps the top level focused on per-dictation choices (Model, Microphone) + stats. Top-level quit button is **Quit Echo**.
 - Plain `Text` / phase `Label` rows render as the standard grayed-out (non-interactive) menu labels — used for the header, hint, preview, and stats.
 - `MicrophonePicker` is its own view so it re-reads the device list from Core Audio (`onAppear`) each time the menu opens.
-- The menu observes `DictationController.shared` (now a singleton) for live `phase`; the **`MenuBarExtra` icon itself** swaps by phase via `DictationController.menuBarSymbol` (`waveform.and.mic` → `record.circle` → `ellipsis.circle`).
+- The menu observes `DictationController.shared` (singleton) for live `phase`, surfaced as the in-menu **status header** (`Label`: `circle` Idle / `record.circle` Recording… / `ellipsis.circle` Transcribing…). The `MenuBarExtra` icon itself is a **static custom asset** `Image("MenuBarIcon")` (set in `echoApp.swift`) — it does **not** change with phase. `DictationController.menuBarSymbol` exists but is currently unused (left over from the earlier phase-swapping icon).
 - Stats caveat: `transcriptionsToday` only rolls over to 0 on the next dictation after midnight (not on menu-open), so it can briefly show yesterday's count.
+
+## Packaging
+
+Personal-use distribution only (no Apple Developer paid account → no Developer ID, no notarization).
+
+### Build settings (project.pbxproj, both Debug + Release)
+- `INFOPLIST_KEY_CFBundleDisplayName = Echo` — display name shown in Finder/Dock/Spotlight
+- `INFOPLIST_KEY_LSApplicationCategoryType = public.app-category.productivity`
+- `INFOPLIST_KEY_NSHumanReadableCopyright = © 2026 Sabeel`
+- `MARKETING_VERSION = 1.0` / `CURRENT_PROJECT_VERSION = 1`
+
+### App icon
+- `echo/Assets.xcassets/AppIcon.appiconset/` — slots defined in `Contents.json`, **no images yet**. Need a 1024×1024 master PNG; generate sizes with `iconutil` or [icon.kitchen](https://icon.kitchen), set "Render As → Original" in Xcode.
+- Menu bar icon: `echo/Assets.xcassets/MenuBarIcon` SVG image set, "Render As → Template Image", "Scales → Single Scale". Used in `echoApp.swift` (`Image("MenuBarIcon")`) and `RecordingOverlay.swift` (`PulsingIcon`).
+
+### Distribution
+- Product → Archive in Xcode → Distribute App → Copy App → export `echo.app`
+- Drag to `/Applications`
+- First launch on a new machine: right-click → Open to bypass Gatekeeper (no notarization)
 
 ## Useful commands
 

@@ -48,7 +48,30 @@ enum Paster {
         guard AXUIElementIsAttributeSettable(element, kAXSelectedTextAttribute as CFString, &settable) == .success,
               settable.boolValue else { return false }
 
-        return AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, text as CFString) == .success
+        // Browsers (Chrome) and WebKit web views report kAXSelectedTextAttribute
+        // as settable and even return .success from the write, but silently
+        // ignore it — nothing lands in the field. Snapshot the character count
+        // and confirm it grew; if it didn't, report failure so the caller uses
+        // the clipboard fallback. (Caret insertion always increases the count;
+        // we can't read it back, we can't trust the write either.)
+        guard let before = characterCount(of: element) else { return false }
+
+        guard AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, text as CFString) == .success else {
+            return false
+        }
+
+        guard let after = characterCount(of: element), after > before else { return false }
+        return true
+    }
+
+    /// Reads kAXNumberOfCharactersAttribute (cheap — just an Int, unlike reading
+    /// the full kAXValueAttribute of a large document). Returns nil if the
+    /// element doesn't expose it, which we treat as "can't verify".
+    private static func characterCount(of element: AXUIElement) -> Int? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXNumberOfCharactersAttribute as CFString, &value) == .success,
+              let number = value as? Int else { return nil }
+        return number
     }
 
     // MARK: - Clipboard fallback
