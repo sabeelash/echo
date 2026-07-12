@@ -82,6 +82,15 @@ private struct RecordingOverlayView: View {
             PulsingIcon(color: .red, duration: 0.6)
         case .transcribing:
             PulsingIcon(color: .white, duration: 0.3)
+        case .error:
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.red)
+                Text("Failed")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.primary)
+            }
+            .frame(height: 18)
         case .idle:
             EmptyView()
         }

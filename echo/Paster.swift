@@ -80,14 +80,56 @@ enum Paster {
         let pb = NSPasteboard.general
         let saved = snapshot(pb)
 
+        // Write the transcript through a lazy data provider rather than
+        // directly: the provider callback fires exactly when the target app
+        // reads the string in response to ⌘V. That's the "paste consumed"
+        // signal a fixed sleep only guesses at (and that changeCount can't
+        // give — reads don't bump it). Slow apps get the full timeout; fast
+        // ones release the clipboard in a few milliseconds.
+        let provider = ConsumptionTrackingProvider(text: text)
+        let item = NSPasteboardItem()
+        item.setDataProvider(provider, forTypes: [.string])
         pb.clearContents()
-        pb.setString(text, forType: .string)
+        pb.writeObjects([item])
+        let ourChangeCount = pb.changeCount
+
         sendCommandV()
 
-        // Restore only after the frontmost app has had a chance to read the
-        // pasteboard in response to ⌘V.
-        try? await Task.sleep(for: .milliseconds(150))
+        let deadline = ContinuousClock.now.advanced(by: .seconds(1))
+        while !provider.consumed && ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        // Brief grace so an app that reads the string more than once while
+        // handling the paste still sees the transcript, not the restore.
+        try? await Task.sleep(for: .milliseconds(50))
+
+        // If something else wrote to the pasteboard while we waited (clipboard
+        // manager, the user copying), restoring now would clobber it — leave
+        // the pasteboard alone.
+        guard pb.changeCount == ourChangeCount else {
+            log.info("Pasteboard changed while pasting — skipping restore")
+            return
+        }
         restore(saved, to: pb)
+    }
+
+    /// Serves the transcript to whoever reads the pasteboard and records that
+    /// it happened. The callback can arrive on a non-main thread, so the flag
+    /// is lock-protected.
+    private final class ConsumptionTrackingProvider: NSObject, NSPasteboardItemDataProvider, @unchecked Sendable {
+        private let text: String
+        private let state = OSAllocatedUnfairLock(initialState: false)
+
+        var consumed: Bool { state.withLock { $0 } }
+
+        init(text: String) {
+            self.text = text
+        }
+
+        func pasteboard(_ pasteboard: NSPasteboard?, item: NSPasteboardItem, provideDataForType type: NSPasteboard.PasteboardType) {
+            item.setString(text, forType: type)
+            state.withLock { $0 = true }
+        }
     }
 
     private static func snapshot(_ pb: NSPasteboard) -> [NSPasteboardItem] {

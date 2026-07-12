@@ -216,16 +216,23 @@ final class AppSettings {
         lastTranscript = text
         lastLatency = latency
 
-        if !Calendar.current.isDateInToday(countDate) {
-            transcriptionsToday = 0
-            countDate = Date()
-            defaults.set(countDate, forKey: Keys.transcriptionsDate)
-        }
+        rollOverDailyCountIfNeeded()
         transcriptionsToday += 1
         defaults.set(transcriptionsToday, forKey: Keys.transcriptionsToday)
 
         totalWords += text.split(whereSeparator: \.isWhitespace).count
         defaults.set(totalWords, forKey: Keys.totalWords)
+    }
+
+    /// Resets `transcriptionsToday` when the day has changed. Called before
+    /// every bump, and by the menu when it opens — otherwise the count would
+    /// show yesterday's number until the next dictation happened to roll it.
+    func rollOverDailyCountIfNeeded() {
+        guard !Calendar.current.isDateInToday(countDate) else { return }
+        transcriptionsToday = 0
+        countDate = Date()
+        defaults.set(countDate, forKey: Keys.transcriptionsDate)
+        defaults.set(transcriptionsToday, forKey: Keys.transcriptionsToday)
     }
 
     /// The key the network layer should use. Prefers a hardcoded key (personal

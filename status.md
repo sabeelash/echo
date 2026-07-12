@@ -78,7 +78,7 @@ Both were listed as "planned" in CLAUDE.md, evaluated, and **rejected**. They pr
 
 - **Time-stretch 1.5×** (`AVAudioUnitTimePitch` offline render → re-encode): saves ~17ms on a 10s clip (~100ms at 60s) but adds ~100–300ms of offline render + AAC re-encode after release. **Net loss** for typical clips, ~wash even for long ones.
 - **VAD trim**: hold-to-talk already has minimal leading/trailing silence, so trimming saves ~2ms. Worse, the current recorder encodes AAC **during** recording inside the tap (overlapped, effectively free); any trim approach needs raw PCM and re-encodes **at stop**, moving the full ~30–80ms encode **onto** the critical path. **Net loss.**
-- Conclusion: don't re-add these. The remaining latency is **network RTT + request overhead** — addressed by pre-warm above. The only duration-style idea that attacks the *dominant* (network) slice is **streaming/chunked upload during recording** (upload mostly done by release); not yet implemented.
+- Conclusion: don't re-add these. The remaining latency is **network RTT + request overhead** — addressed by pre-warm above. Streaming/chunked upload during recording was considered as a way to attack that slice, but Groq's `/audio/transcriptions` endpoint doesn't support streaming uploads, so that's not viable.
 
 ## Local transcription prototype (SpeechTranscriber vs Groq)
 
@@ -123,7 +123,7 @@ No settings *window* — a Settings scene + pane existed briefly but was removed
   - `lastLatency: TimeInterval?` — round-trip seconds of the last transcription (the `dt` measured in `DictationController`), runtime-only; powers the menu's **Last: 1.2s** readout.
   - `transcriptionsToday: Int` / `totalWords: Int` — `private(set)`, **persisted**. Vanity/feedback stats shown in the menu.
   - `recordTranscription(_:latency:)` — single entry point called on every successful transcript: sets `lastTranscript` + `lastLatency`, bumps `transcriptionsToday` (resets at midnight via stored `countDate`), adds word count to `totalWords`. Replaces the old direct `lastTranscript =` assignment.
-  - `resolvedAPIKey: String?` — prefers a **hardcoded** key (personal use; works in an `open`ed .app), falling back to the `GROQ_KEY` **env var** (Xcode scheme → only present under ⌘R), else nil. Placeholder `gsk_PASTE_YOUR_KEY_HERE` counts as unset, so leaving it untouched keeps the env-var path. Temporary — replace with Keychain (read-once-and-cache; see `keychain-todo.md`). **Don't commit a real key.**
+  - `resolvedAPIKey: String?` — prefers a **hardcoded** key (personal use; works in an `open`ed .app), falling back to the `GROQ_KEY` **env var** (Xcode scheme → only present under ⌘R), else nil. Placeholder `gsk_PASTE_YOUR_KEY_HERE` counts as unset, so leaving it untouched keeps the env-var path. Temporary — replace with Keychain (read-once-and-cache). **Don't commit a real key.**
 - `echo/AudioDevices.swift` — Core Audio enumeration of input devices (id/uid/name); filters to devices with ≥1 input channel. `deviceID(forUID:)` resolves a stored UID back to a current device at record time.
 
 ## Menu bar (`echo/ContentView.swift` → `MenuBarView`)
@@ -145,7 +145,6 @@ Personal-use distribution only (no Apple Developer paid account → no Developer
 - `MARKETING_VERSION = 1.0` / `CURRENT_PROJECT_VERSION = 1`
 
 ### App icon
-- `echo/Assets.xcassets/AppIcon.appiconset/` — slots defined in `Contents.json`, **no images yet**. Need a 1024×1024 master PNG; generate sizes with `iconutil` or [icon.kitchen](https://icon.kitchen), set "Render As → Original" in Xcode.
 - Menu bar icon: `echo/Assets.xcassets/MenuBarIcon` SVG image set, "Render As → Template Image", "Scales → Single Scale". Used in `echoApp.swift` (`Image("MenuBarIcon")`) and `RecordingOverlay.swift` (`PulsingIcon`).
 
 ### Distribution

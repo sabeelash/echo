@@ -14,7 +14,7 @@ import os
 @MainActor
 @Observable
 final class DictationController {
-    enum Phase: Equatable { case idle, recording, transcribing }
+    enum Phase: Equatable { case idle, recording, transcribing, error }
 
     static let shared = DictationController()
 
@@ -35,10 +35,20 @@ final class DictationController {
     /// wedge `phase` at .transcribing and disable dictation until relaunch.
     private static let localFinishTimeout: TimeInterval = 10
 
+    /// Holds shorter than this are treated as accidental Fn taps: the recording
+    /// is discarded instead of burning a round-trip and pasting garbage.
+    private static let minimumHold: TimeInterval = 0.3
+
+    /// How long the overlay's red "failed" state stays up before dismissing.
+    private static let errorFlashDuration: TimeInterval = 1.2
+
     /// Token for the `beginActivity` that keeps macOS from throttling (App Nap)
     /// the audio engine / network mid-dictation. Held for the whole hold →
     /// transcribe → paste cycle; cleared on every exit path via `endActivity()`.
     @ObservationIgnored private var activity: NSObjectProtocol?
+
+    /// When the current hold started, for the accidental-tap check on release.
+    @ObservationIgnored private var recordingStartedAt: Date?
 
     private(set) var phase: Phase = .idle
 
@@ -48,12 +58,14 @@ final class DictationController {
         case .idle: return "waveform.and.mic"
         case .recording: return "record.circle"
         case .transcribing: return "ellipsis.circle"
+        case .error: return "exclamationmark.circle"
         }
     }
 
     func start() {
         hotkey.onPress = { [weak self] in self?.beginRecording() }
         hotkey.onRelease = { [weak self] in self?.endRecording() }
+        hotkey.onCancel = { [weak self] in self?.cancelRecording() }
         hotkey.start()
     }
 
@@ -78,6 +90,7 @@ final class DictationController {
         }
         do {
             try recorder.start(inputDeviceUID: settings.inputDeviceUID)
+            recordingStartedAt = Date()
             phase = .recording
             overlay.show()
             log.info("Recording started (Fn down, \(settings.engine.rawValue, privacy: .public))")
@@ -112,8 +125,39 @@ final class DictationController {
         activity = nil
     }
 
+    /// Esc pressed mid-hold: throw the recording away without transcribing.
+    private func cancelRecording() {
+        guard phase == .recording else { return }
+        log.info("Recording cancelled (Esc)")
+        discardRecording()
+    }
+
+    /// Stops the recorder and tears everything down without transcribing.
+    /// Shared by Esc-cancel and the accidental-tap discard.
+    private func discardRecording() {
+        let session = localSession
+        localSession = nil
+        let url = recorder.stop()
+        recorder.onBuffer = nil
+        if let url { try? FileManager.default.removeItem(at: url) }
+        abandonSettledSession(session)
+        phase = .idle
+        overlay.hide()
+        endActivity()
+    }
+
     private func endRecording() {
         guard phase == .recording else { return }
+
+        // An Fn tap this short is almost certainly accidental — discard rather
+        // than upload a fraction of a syllable and paste garbage.
+        let held = Date().timeIntervalSince(recordingStartedAt ?? .distantPast)
+        if held < Self.minimumHold {
+            log.info("Hold too short (\(held, privacy: .public)s) — discarding")
+            discardRecording()
+            return
+        }
+
         let session = localSession
         localSession = nil
         let url = recorder.stop()
@@ -157,9 +201,7 @@ final class DictationController {
             if raw == nil {
                 guard let key else {
                     log.error("transcribe skipped: no API key")
-                    phase = .idle
-                    overlay.hide()
-                    endActivity()
+                    await flashError()
                     return
                 }
                 do {
@@ -168,9 +210,7 @@ final class DictationController {
                     )
                 } catch {
                     log.error("transcribe failed: \(error.localizedDescription, privacy: .public)")
-                    phase = .idle
-                    overlay.hide()
-                    endActivity()
+                    await flashError()
                     return
                 }
             }
@@ -179,9 +219,7 @@ final class DictationController {
             let dt = Date().timeIntervalSince(start)
             guard !text.isEmpty else {
                 log.info("empty transcript — nothing to paste")
-                phase = .idle
-                overlay.hide()
-                endActivity()
+                await flashError()
                 return
             }
             log.info("Transcribed in \(dt, privacy: .public)s: \(text, privacy: .private)")
@@ -195,6 +233,18 @@ final class DictationController {
             // anti-throttling activity now that the cycle is complete.
             endActivity()
         }
+    }
+
+    /// Fail loudly: hold the overlay in a red error state briefly before
+    /// dismissing, so a failed dictation never just vanishes. While the flash
+    /// is up `phase` is `.error`, which also blocks a new hold from starting.
+    private func flashError() async {
+        phase = .error
+        overlay.show()
+        try? await Task.sleep(for: .seconds(Self.errorFlashDuration))
+        phase = .idle
+        overlay.hide()
+        endActivity()
     }
 
     /// Awaits local session startup + finalization, giving up after `timeout`

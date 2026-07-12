@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import ServiceManagement
 
 struct MenuBarView: View {
     @Environment(\.openWindow) private var openWindow
@@ -18,9 +19,16 @@ struct MenuBarView: View {
         case .idle:         Label("Idle", systemImage: "circle")
         case .recording:    Label("Recording…", systemImage: "record.circle")
         case .transcribing: Label("Transcribing…", systemImage: "ellipsis.circle")
+        case .error:        Label("Failed", systemImage: "exclamationmark.circle")
         }
 
         Text("Hold Fn to dictate")
+            // The menu is rebuilt each time it opens, so this fires per open —
+            // roll the daily count over so it never shows yesterday's number.
+            .onAppear { settings.rollOverDailyCountIfNeeded() }
+
+        // The active configuration at a glance, without opening Settings.
+        Text(configSummary)
 
         Divider()
 
@@ -59,6 +67,17 @@ struct MenuBarView: View {
         }
         .disabled(settings.lastTranscript.isEmpty)
 
+        Button("Paste Last Transcript Again") {
+            let text = settings.lastTranscript
+            Task {
+                // Give the menu time to close and focus to return to the app
+                // the user was in before the paste lands.
+                try? await Task.sleep(for: .milliseconds(200))
+                await Paster.paste(text)
+            }
+        }
+        .disabled(settings.lastTranscript.isEmpty)
+
         Divider()
 
         if let latency = settings.lastLatency {
@@ -80,6 +99,8 @@ struct MenuBarView: View {
                 Permissions.requestMicrophone()
                 Permissions.checkAccessibility(prompt: true)
             }
+
+            LaunchAtLoginToggle()
 
             Button("Custom Vocabulary…") {
                 NSApp.activate(ignoringOtherApps: true)
@@ -107,6 +128,20 @@ struct MenuBarView: View {
         .keyboardShortcut("q", modifiers: .command)
     }
 
+    /// One-line summary of the active configuration, e.g.
+    /// "Groq · Turbo · Professional" or "On-device · Casual".
+    private var configSummary: String {
+        var parts: [String]
+        switch settings.engine {
+        case .groq:
+            parts = ["Groq", settings.model == .turbo ? "Turbo" : "Large v3"]
+        case .local:
+            parts = ["On-device"]
+        }
+        parts.append(settings.style.displayName)
+        return parts.joined(separator: " · ")
+    }
+
     /// First ~40 characters of the last transcript, collapsed to one line, for
     /// an at-a-glance peek before copying.
     private var transcriptPreview: String {
@@ -114,6 +149,29 @@ struct MenuBarView: View {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "\n", with: " ")
         return oneLine.count > 40 ? String(oneLine.prefix(40)) + "…" : oneLine
+    }
+}
+
+/// Launch-at-login toggle backed by `SMAppService.mainApp`. The registration
+/// status isn't observable, so it's re-read each time the menu opens (the view
+/// is recreated per open) and after every toggle in case the call fails.
+private struct LaunchAtLoginToggle: View {
+    @State private var enabled = SMAppService.mainApp.status == .enabled
+
+    var body: some View {
+        Toggle("Launch at Login", isOn: $enabled)
+            .onChange(of: enabled) { _, wantEnabled in
+                guard wantEnabled != (SMAppService.mainApp.status == .enabled) else { return }
+                do {
+                    if wantEnabled {
+                        try SMAppService.mainApp.register()
+                    } else {
+                        try SMAppService.mainApp.unregister()
+                    }
+                } catch {
+                    enabled = SMAppService.mainApp.status == .enabled
+                }
+            }
     }
 }
 
