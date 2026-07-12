@@ -52,16 +52,6 @@ final class DictationController {
 
     private(set) var phase: Phase = .idle
 
-    /// SF Symbol for the menu bar icon, reflecting the current phase.
-    var menuBarSymbol: String {
-        switch phase {
-        case .idle: return "waveform.and.mic"
-        case .recording: return "record.circle"
-        case .transcribing: return "ellipsis.circle"
-        case .error: return "exclamationmark.circle"
-        }
-    }
-
     func start() {
         hotkey.onPress = { [weak self] in self?.beginRecording() }
         hotkey.onRelease = { [weak self] in self?.endRecording() }

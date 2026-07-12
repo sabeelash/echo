@@ -88,12 +88,15 @@ enum TranscriptionStyle: String, CaseIterable, Identifiable {
     }
 
     /// Appended to the Groq `prompt` to steer capitalization/punctuation.
+    /// Each exemplar also writes numbers as digits ("3pm", "$12,500") to bias
+    /// Whisper toward numerals over spelled-out numbers — an orthogonal
+    /// formatting axis folded into both styles rather than a style of its own.
     var exemplar: String {
         switch self {
         case .professional:
-            return "The following is a professional transcript with proper capitalization, punctuation, and complete sentences."
+            return "The following is a professional transcript with proper capitalization, punctuation, and complete sentences. The meeting starts at 3pm, the budget is $12,500, and we are in room 204."
         case .casual:
-            return "here's a casual transcript with no capitalization and relaxed punctuation just lowercase text"
+            return "here's a casual transcript with no capitalization and relaxed punctuation just lowercase text. i'll grab 2 coffees and meet you at 5"
         }
     }
 

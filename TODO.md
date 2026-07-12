@@ -1,8 +1,8 @@
 # TODO
 
-- [ ] Remove the "Restart Echo" button from the menu.
+- [x] Remove the "Restart Echo" button from the menu.
 
-- [ ] Add a Help window.
+- [x] Add a Help window.
   No Help window exists yet. Follow the pattern used by the existing "Custom Vocabulary…" and "Open Debug…" windows ([ContentView.swift:105-113](echo/ContentView.swift:105)): register a new `WindowGroup` with a unique id (e.g. `"help"`) in `echoApp.swift`, add a menu item that calls `openWindow(id: "help")`, and build a SwiftUI view for the content. Decided contents:
   - Keyboard shortcuts table: **Hold Fn** — dictate; **⌃⌘V** — paste last transcript.
   - One-liner per Style (what each does).
@@ -11,19 +11,18 @@
   - Permissions troubleshooting: mic + Accessibility (AX paste silently degrades without it).
   - Tone: modern SaaS copy — confident and friendly, no jargon, no filler.
 
-- [ ] Add keyboard shortcut to "Paste Last Transcript Again": **⌃⌘V**, decided (⌘⇧V rejected — it would steal plain-text paste system-wide).
-  Must be a *global* hotkey to be useful — a `.keyboardShortcut` on the menu item only fires while the menu is open, since echo is a background app. Hardcode it via a global event tap (pattern: [FnHotkeyMonitor.swift](echo/FnHotkeyMonitor.swift)); don't pull in the KeyboardShortcuts dependency for one binding. Show the chord in the menu item and in the Help window.
+- [x] ~~Add keyboard shortcut to "Paste Last Transcript Again"~~ — dropped. Built as an NSEvent global keyDown monitor (⌃⌘V), but it didn't fire reliably in testing and the menu item covers the use case; removed rather than debugged further.
 
-- [ ] Strip the Debug window out of exported/release builds.
+- [x] Strip the Debug window out of exported/release builds.
 
-- [ ] Remove the "Hold Fn to dictate" hint text from the menu.
+- [x] Remove the "Hold Fn to dictate" hint text from the menu.
 
-- [ ] Merge the stats into one compact line: `N today · M words · X.Xs` ([ContentView.swift:86](echo/ContentView.swift:86)).
+- [x] Merge the stats into one compact line: `N today · M words · X.Xs` ([ContentView.swift:86](echo/ContentView.swift:86)).
   Decided: keep the words-dictated stat (it's the value/retention number), fold the "Last: X.Xs" latency readout into the same line, drop the "dictated" suffix and the separate latency line.
 
-- [ ] Fold numerals-as-digits bias into the existing `.professional` and `.casual` exemplars (e.g. "meeting starts at 3pm, budget is $12,500, room 204" / "i'll grab 2 coffees and meet you at 5") instead of making it its own style — it's an orthogonal formatting axis, not a tone choice, so it shouldn't force users to give up casual/professional to get it.
+- [x] Fold numerals-as-digits bias into the existing `.professional` and `.casual` exemplars (e.g. "meeting starts at 3pm, budget is $12,500, room 204" / "i'll grab 2 coffees and meet you at 5") instead of making it its own style — it's an orthogonal formatting axis, not a tone choice, so it shouldn't force users to give up casual/professional to get it.
 
-- [ ] Remove (or wire up) `DictationController.menuBarSymbol` — currently unused, left over from the earlier phase-swapping icon (status.md).
+- [x] Remove (or wire up) `DictationController.menuBarSymbol` — currently unused, left over from the earlier phase-swapping icon (status.md).
 
 ---
 

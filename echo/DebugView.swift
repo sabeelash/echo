@@ -10,6 +10,9 @@
 //  are measured from the same stop instant.
 //
 
+// The whole harness is Debug-only so exported/release builds carry none of it.
+#if DEBUG
+
 import SwiftUI
 import os
 
@@ -235,3 +238,5 @@ struct DebugView: View {
         }
     }
 }
+
+#endif

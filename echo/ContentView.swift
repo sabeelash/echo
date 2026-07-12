@@ -22,11 +22,6 @@ struct MenuBarView: View {
         case .error:        Label("Failed", systemImage: "exclamationmark.circle")
         }
 
-        Text("Hold Fn to dictate")
-            // The menu is rebuilt each time it opens, so this fires per open —
-            // roll the daily count over so it never shows yesterday's number.
-            .onAppear { settings.rollOverDailyCountIfNeeded() }
-
         // The active configuration at a glance, without opening Settings.
         Text(configSummary)
 
@@ -80,10 +75,10 @@ struct MenuBarView: View {
 
         Divider()
 
-        if let latency = settings.lastLatency {
-            Text(String(format: "Last: %.1fs", latency))
-        }
-        Text("\(settings.transcriptionsToday) today · \(settings.totalWords) words dictated")
+        Text(statsSummary)
+            // The menu is rebuilt each time it opens, so this fires per open —
+            // roll the daily count over so it never shows yesterday's number.
+            .onAppear { settings.rollOverDailyCountIfNeeded() }
 
         Divider()
 
@@ -107,19 +102,17 @@ struct MenuBarView: View {
                 openWindow(id: "vocabulary")
             }
 
+            #if DEBUG
             Button("Open Debug…") {
                 NSApp.activate(ignoringOtherApps: true)
                 openWindow(id: "debug")
             }
+            #endif
+        }
 
-            Button("Restart Echo") {
-                let url = Bundle.main.bundleURL
-                let task = Process()
-                task.launchPath = "/usr/bin/open"
-                task.arguments = [url.path]
-                task.launch()
-                NSApplication.shared.terminate(nil)
-            }
+        Button("Help…") {
+            NSApp.activate(ignoringOtherApps: true)
+            openWindow(id: "help")
         }
 
         Button("Quit Echo") {
@@ -140,6 +133,16 @@ struct MenuBarView: View {
         }
         parts.append(settings.style.displayName)
         return parts.joined(separator: " · ")
+    }
+
+    /// Usage stats on one compact line, e.g. "3 today · 1204 words · 1.2s".
+    /// The latency segment appears once the first dictation of the session lands.
+    private var statsSummary: String {
+        var line = "\(settings.transcriptionsToday) today · \(settings.totalWords) words"
+        if let latency = settings.lastLatency {
+            line += String(format: " · %.1fs", latency)
+        }
+        return line
     }
 
     /// First ~40 characters of the last transcript, collapsed to one line, for
