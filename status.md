@@ -44,7 +44,7 @@ Built in three isolated stages (each verified before the next).
 - **Browser paste bug + fix (must verify the AX write):** Chrome and WebKit web views report `kAXSelectedTextAttribute` as *settable* and `AXUIElementSetAttributeValue` returns `.success`, but the write is **silently dropped** — nothing lands in the field. The old code trusted the return code, declared success, and never reached the clipboard fallback → **nothing pasted in the browser**. Fix: snapshot `kAXNumberOfCharactersAttribute` before/after the set and require it grew (`after > before`); otherwise return `false` so the clipboard `⌘V` path runs. Use the *char count* (an `Int`), not full `kAXValueAttribute`, so verification doesn't copy an entire large document's text on every paste.
   - Edge case: a native control that honors the AX write but doesn't expose a char count routes through clipboard instead (correct, slightly slower). All standard AppKit text controls expose the count, so this is rare. Reading back the value text would close it but pays the expensive copy we're avoiding.
 - Rationale: AX is **not** meaningfully faster than clipboard — its real win is not destroying the user's clipboard. Paste latency is negligible vs upload+inference, so optimize paste for reliability, not speed.
-- Tunable: the 150ms restore delay is racy — too short → pastes old clipboard; too long → feels laggy.
+- Tunable: the 150ms restore delay is racy — too short → pastes old clipboard; too long → feels laggy. Fine as-is for now — no reports of it misfiring in practice.
 
 ## Transcription prompt (vocabulary + style)
 
@@ -123,7 +123,7 @@ No settings *window* — a Settings scene + pane existed briefly but was removed
   - `lastLatency: TimeInterval?` — round-trip seconds of the last transcription (the `dt` measured in `DictationController`), runtime-only; powers the menu's **Last: 1.2s** readout.
   - `transcriptionsToday: Int` / `totalWords: Int` — `private(set)`, **persisted**. Vanity/feedback stats shown in the menu.
   - `recordTranscription(_:latency:)` — single entry point called on every successful transcript: sets `lastTranscript` + `lastLatency`, bumps `transcriptionsToday` (resets at midnight via stored `countDate`), adds word count to `totalWords`. Replaces the old direct `lastTranscript =` assignment.
-  - `resolvedAPIKey: String?` — prefers a **hardcoded** key (personal use; works in an `open`ed .app), falling back to the `GROQ_KEY` **env var** (Xcode scheme → only present under ⌘R), else nil. Placeholder `gsk_PASTE_YOUR_KEY_HERE` counts as unset, so leaving it untouched keeps the env-var path. Temporary — replace with Keychain (read-once-and-cache). **Don't commit a real key.**
+  - `resolvedAPIKey: String?` — prefers a **hardcoded** key (personal use; works in an `open`ed .app), falling back to the `GROQ_KEY` **env var** (Xcode scheme → only present under ⌘R), else nil. Placeholder `gsk_PASTE_YOUR_KEY_HERE` counts as unset, so leaving it untouched keeps the env-var path. Fine as-is for personal use (see [TODO.md](TODO.md) for the future bring-your-own-key/Keychain plan, needed before wider distribution). **Don't commit a real key.**
 - `echo/AudioDevices.swift` — Core Audio enumeration of input devices (id/uid/name); filters to devices with ≥1 input channel. `deviceID(forUID:)` resolves a stored UID back to a current device at record time.
 
 ## Menu bar (`echo/ContentView.swift` → `MenuBarView`)

@@ -1,22 +1,25 @@
 # TODO
 
-## 1. Fail loudly, not silently
+## 1. Menu bar cleanup
 
-When transcription fails, `DictationController` logs the error and just hides the overlay — the user spoke for 30 seconds and gets nothing, with no indication why.
+- [ ] Remove the "Restart Echo" button from the menu.
+- [ ] Move Language out of the Settings submenu and into the main menu.
+- [ ] Add a Help window.
+- [ ] Add keyboard shortcuts to Copy Last Transcript and Paste Last Transcript Again.
+- [ ] Strip the Debug window out of exported/release builds.
+- [ ] Remove the "Hold Fn to dictate" hint text from the menu.
+- [ ] Open question: is the "N words dictated" stat worth keeping, or should it go?
+- [ ] Move the "Last: X.Xs" latency readout onto the "N today · M words dictated" line.
 
-- [x] Add a brief error state to the overlay (icon flashes red, or a short "Failed — copied nothing" flash) before dismissing.
+## 2. More styles
 
-## 2. Escape-to-cancel while recording
+- [ ] Add a couple more `TranscriptionStyle` cases beyond Professional/Casual (e.g. Concise, Note-taking). Keep to case/tone exemplars the prompt bias can actually deliver — bullet points/email formatting need a second LLM pass per status.md, not a style exemplar.
 
-No way to abort right now — releasing Fn always uploads/transcribes.
+## 3. Code cleanup
 
-- [x] Pressing Esc mid-hold discards the recording (small addition to `FnHotkeyMonitor`).
-- [x] Discard recordings under ~300ms so an accidental Fn tap doesn't burn a round-trip and paste garbage.
+- [ ] Remove (or wire up) `DictationController.menuBarSymbol` — currently unused, left over from the earlier phase-swapping icon (status.md).
 
-## 3. Polish items
+## 4. Future, not now
 
-- [x] Launch at login via `SMAppService.mainApp` — a few lines plus a menu toggle.
-- [x] Clipboard restore race: fixed via a lazy `NSPasteboardItemDataProvider` — its callback fires when the app actually reads the string in response to ⌘V (reads don't bump `changeCount`, so polling that can't detect consumption); `changeCount` is still checked before restoring so a concurrent write is never clobbered. 1s timeout fallback.
-- [x] `transcriptionsToday` only rolls over on the next dictation, so it can show yesterday's count — check the date when the menu opens instead.
-- [x] Paste last transcript again — a menu item / shortcut to re-paste `lastTranscript` without re-recording.
-- [x] Show current settings (engine, model, style) in the menu bar status area, same treatment as the phase header (Idle / "Hold Fn to dictate") — so the active config is visible at a glance without opening the Settings submenu.
+- [ ] Bring-your-own-key settings UI: replace the hardcoded/env-var Groq key (`AppSettings.resolvedAPIKey`) with a settings UI where users paste their own key, stored in Keychain.
+- [ ] Filler-word removal (um/uh/like) as a style post-process — cheap via a regex sweep, called out as the next easy win in status.md but not yet built.
