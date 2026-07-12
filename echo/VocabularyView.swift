@@ -23,7 +23,7 @@ struct VocabularyView: View {
             Text("Custom Vocabulary")
                 .font(.headline)
 
-            Text("Names, jargon, and acronyms echo should spell correctly. Sent to Groq as a hint with every transcription.")
+            Text("Names, jargon, and acronyms echo should spell correctly. Hints both engines: Groq's prompt and the on-device recognizer's contextual strings.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -45,7 +45,7 @@ struct VocabularyView: View {
                     }
                 }
 
-            Text("Groq caps this at 224 tokens (~150 words).")
+            Text("Comma-separated. Groq caps this at 224 tokens (~150 words).")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
         }

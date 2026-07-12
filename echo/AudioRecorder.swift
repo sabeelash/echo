@@ -29,6 +29,11 @@ final class AudioRecorder {
     private(set) var outputURL: URL?
     private(set) var isRecording = false
 
+    /// Optional side-channel for raw hardware-format tap buffers, invoked on the
+    /// audio tap thread while recording. Used by the local-transcription
+    /// prototype to stream audio into SpeechAnalyzer alongside the file write.
+    var onBuffer: ((AVAudioPCMBuffer) -> Void)?
+
     /// Begins capturing into a fresh .m4a file in the temp dir. `inputDeviceUID`
     /// selects a specific mic by its Core Audio UID; nil uses the system default.
     func start(inputDeviceUID: String? = nil) throws {
@@ -65,6 +70,7 @@ final class AudioRecorder {
         self.converter = converter
 
         input.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
+            self?.onBuffer?(buffer)
             self?.append(buffer)
         }
 

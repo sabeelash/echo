@@ -10,6 +10,23 @@
 import Foundation
 import Observation
 
+/// Which engine transcribes dictations. Groq is the cloud path (Whisper
+/// large-v3, needs network + API key); local is the on-device SpeechAnalyzer
+/// (macOS 26) — no network round-trip, so lower latency (see status.md).
+enum TranscriptionEngine: String, CaseIterable, Identifiable {
+    case groq
+    case local
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .groq: return "Groq — cloud"
+        case .local: return "On-device — fastest"
+        }
+    }
+}
+
 /// The Groq Whisper variants echo can target. Raw value is the API model id.
 enum GroqModel: String, CaseIterable, Identifiable {
     case turbo = "whisper-large-v3-turbo"
@@ -98,6 +115,7 @@ final class AppSettings {
     static let shared = AppSettings()
 
     private enum Keys {
+        static let engine = "engine"
         static let languageCode = "languageCode"
         static let model = "model"
         static let inputDeviceUID = "inputDeviceUID"
@@ -109,6 +127,11 @@ final class AppSettings {
     }
 
     private let defaults: UserDefaults
+
+    /// Groq (cloud) vs on-device transcription. Persisted.
+    var engine: TranscriptionEngine {
+        didSet { defaults.set(engine.rawValue, forKey: Keys.engine) }
+    }
 
     /// ISO-639-1 code, or "" for auto-detect.
     var languageCode: String {
@@ -143,6 +166,16 @@ final class AppSettings {
         return [vocab, style.exemplar].filter { !$0.isEmpty }.joined(separator: " ")
     }
 
+    /// The vocabulary as individual terms, for the local engine's
+    /// `AnalysisContext.contextualStrings` (which wants an array, not prose).
+    /// Split on commas/newlines only, so multi-word names survive intact.
+    var vocabularyTerms: [String] {
+        vocabularyPrompt
+            .split(whereSeparator: { $0 == "," || $0.isNewline })
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
     /// Most recent successful transcript, surfaced by the menu's "Copy Last
     /// Transcript". Runtime-only — intentionally not persisted.
     var lastTranscript: String = ""
@@ -162,6 +195,8 @@ final class AppSettings {
 
     private init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        self.engine = defaults.string(forKey: Keys.engine)
+            .flatMap(TranscriptionEngine.init(rawValue:)) ?? .groq
         self.languageCode = defaults.string(forKey: Keys.languageCode) ?? "en"
         self.model = defaults.string(forKey: Keys.model)
             .flatMap(GroqModel.init(rawValue:)) ?? .turbo

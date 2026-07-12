@@ -24,9 +24,18 @@ struct MenuBarView: View {
 
         Divider()
 
-        Picker("Model", selection: $settings.model) {
-            ForEach(GroqModel.allCases) { model in
-                Text(model.displayName).tag(model)
+        Picker("Engine", selection: $settings.engine) {
+            ForEach(TranscriptionEngine.allCases) { engine in
+                Text(engine.displayName).tag(engine)
+            }
+        }
+
+        // The Groq model choice only matters on the cloud path.
+        if settings.engine == .groq {
+            Picker("Model", selection: $settings.model) {
+                ForEach(GroqModel.allCases) { model in
+                    Text(model.displayName).tag(model)
+                }
             }
         }
 

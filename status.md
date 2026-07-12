@@ -80,11 +80,41 @@ Both were listed as "planned" in CLAUDE.md, evaluated, and **rejected**. They pr
 - **VAD trim**: hold-to-talk already has minimal leading/trailing silence, so trimming saves ~2ms. Worse, the current recorder encodes AAC **during** recording inside the tap (overlapped, effectively free); any trim approach needs raw PCM and re-encodes **at stop**, moving the full ~30–80ms encode **onto** the critical path. **Net loss.**
 - Conclusion: don't re-add these. The remaining latency is **network RTT + request overhead** — addressed by pre-warm above. The only duration-style idea that attacks the *dominant* (network) slice is **streaming/chunked upload during recording** (upload mostly done by release); not yet implemented.
 
+## Local transcription prototype (SpeechTranscriber vs Groq)
+
+Prototype for replacing/augmenting Groq with the on-device **SpeechAnalyzer / SpeechTranscriber** API (macOS 26 Speech framework). Motivation: the remaining Groq latency is network RTT + fixed request overhead (~1s), which no client-side work can remove; on-device streaming transcription removes the network entirely. Chosen over WhisperKit/whisper.cpp because the model asset is **system-managed** (`AssetInventory`) and inference runs **out of process** — zero cost to echo's ~32MB footprint, which matters on 8GB machines.
+
+- `echo/LocalTranscriber.swift` — one streaming session: `startSession(languageCode:)` (maps ISO code via `supportedLocale(equivalentTo:)`, downloads model on first use, `prepareToAnalyze` preheats), `feed(_:)` (called on the audio tap thread; converts hardware format → analyzer's preferred `16kHz mono Int16` via `AVAudioConverter`, yields `AnalyzerInput` into an `AsyncStream`), `finish()` (ends input, `finalizeAndFinishThroughEndOfInput`, returns transcript). Reporting options `[.volatileResults, .fastResults]` → live partial text via `onPartial` while the user is still speaking. `modelRetention: .processLifetime` keeps the model warm across dictations.
+- `AudioRecorder.onBuffer` — optional side-channel handing raw tap buffers to the prototype alongside the file write; production Groq path untouched.
+- `echo/DebugView.swift` — head-to-head harness: one recording feeds both engines (file → Groq at stop; tap buffers → local *during* recording), both latencies measured from the same stop instant, shown side by side. Local pane updates live while speaking.
+- **Measured on the M1/8GB (CLI harness, 8.6s synthesized clip):** model already installed system-wide, `prepareToAnalyze` ~0.2s, **finalize latency 0.35s** after end of input (streaming path) / 0.25s (file convenience path), transcript verbatim-correct including "M1". Live dictation should be ≤ this, since audio streams in real time and only the tail needs finalizing at Fn-release. Groq round-trips are typically ~1s+ → local wins on latency; accuracy/vocab comparison needs real dictations via the Debug window.
+- Gotchas: `AVAudioFile.read(into:)` throws a bare `nilError` at exact EOF (bit the harness; live tap path unaffected). Volatile results can glitch mid-word ("speecheech") but finals are clean.
+- Style exemplars don't apply locally (only `postProcess` runs — casual lowercasing works, professional is a no-op anyway).
+
+### Local vocabulary (module choice)
+
+The local analogue of the Groq `prompt` is `AnalysisContext.contextualStrings` — but **SpeechTranscriber ignores it** (known framework limitation; both `setContext` and the `analysisContext:` init were tested, zero effect). **DictationTranscriber honors it**, so `LocalTranscriber.startSession(languageCode:vocabulary:)` picks the module:
+
+- **Vocabulary empty → SpeechTranscriber** (`[.volatileResults, .fastResults]`) — better baseline accuracy + punctuation.
+- **Vocabulary set → DictationTranscriber** (`contentHints: [.shortForm]`, `transcriptionOptions: [.punctuation]`, `reportingOptions: [.volatileResults, .frequentFinalization]`) with `contextualStrings = [.general: terms]` attached via the `SpeechAnalyzer(inputSequence:…analysisContext:)` init.
+- A/B on the M1 (synthesized "I asked Sabeel to prewarm the Groq client before the WhisperKit comparison"): SpeechTranscriber ± vocab → "Sabiel / Grock / Whisper Kit" (vocab ignored); DictationTranscriber without vocab → "Samuel / grout client / whisper kit"; **DictationTranscriber with vocab → every term exact**, finalize 0.18s. Trade-off: DictationTranscriber's punctuation is lighter (dropped the trailing period), baseline slightly weaker — acceptable since it only runs when vocab is set, which is when the terms matter.
+- `AppSettings.vocabularyTerms` splits `vocabularyPrompt` on commas/newlines only (multi-word names survive); both `DictationController` and `DebugView` pass it. Vocabulary panel copy updated (comma-separated, hints both engines).
+
+### Engine switch (wired into real dictation)
+
+`AppSettings.engine` (`TranscriptionEngine`: `.groq` default / `.local`, persisted) selects the dictation engine; top-level **Engine** picker in the menu bar (the Groq **Model** picker only shows when the engine is Groq).
+
+- **Fn-down** (`DictationController.beginRecording`): Groq → `prewarm()` as before; local → `recorder.onBuffer` streams tap buffers to `LocalTranscriber` and `startSession` runs concurrently in `localSession: Task`. Recording starts immediately either way — `LocalTranscriber.feed` holds early buffers under a lock (cap ~25s) and flushes them when the session comes up (~0.2–0.4s warm), so the first words aren't lost.
+- **Fn-up** (`endRecording`): local path awaits the session task then `local.finish()` (audio already streamed; just finalization), **capped at 10s** (`localFinishTimeout`, raced via a first-wins continuation — a task group can't race a hung `Task.value` since it ignores cancellation). **Any local failure or timeout falls back to Groq with the recorded m4a** — same audio, slower path, no lost speech; needs the API key only on that fallback. Without the cap, a hang (e.g. first-use model download) would wedge `phase` at `.transcribing` and kill dictation until relaunch. Empty transcripts are dropped (no paste, no stats bump).
+- The m4a is always recorded even on the local path — it's the fallback payload; deleted after transcription as before.
+- Abandoned sessions (record-start failure, stop-returns-nil) are cleaned up by awaiting session startup then `cancel()`, so the cancel can't race `startSession`.
+
 ## Settings (`echo/AppSettings.swift`)
 
 No settings *window* — a Settings scene + pane existed briefly but was removed (overkill for a personal app). All config lives in the menu bar instead.
 
 - `AppSettings.shared` (`@MainActor @Observable`) — single source of truth. Persists to `UserDefaults`; the menu bar binds to it.
+  - `engine: TranscriptionEngine` — `.groq` (default) vs `.local` (on-device SpeechTranscriber; see **Engine switch**). **Persisted.**
   - `model: GroqModel` — `whisper-large-v3-turbo` (default) vs `whisper-large-v3`.
   - `languageCode: String` — ISO-639-1 hint (default `en`); `""` = auto-detect.
   - `inputDeviceUID: String?` — chosen mic by Core Audio **UID** (stable across reconnects, unlike the numeric device ID); nil = system default.
