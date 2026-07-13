@@ -44,8 +44,15 @@ final class FnHotkeyMonitor {
             self?.handle(event)
             return event
         }
-        // Esc-to-cancel: only consulted while Fn is held, so ordinary Esc
-        // presses elsewhere are untouched.
+        log.info("Fn monitor started")
+    }
+
+    /// Esc-to-cancel monitors, live only for the duration of a hold. A global
+    /// keyDown monitor is delivered every keystroke in every app, so keeping
+    /// one installed while idle would wake echo on each systemwide key press
+    /// just to hit the `isDown` early-return.
+    private func installKeyMonitors() {
+        guard globalKeyMonitor == nil else { return }
         globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
             _ = self?.handleKeyDown(event)
         }
@@ -54,7 +61,13 @@ final class FnHotkeyMonitor {
             // whichever echo window is key.
             (self?.handleKeyDown(event) == true) ? nil : event
         }
-        log.info("Fn monitor started")
+    }
+
+    private func removeKeyMonitors() {
+        if let globalKeyMonitor { NSEvent.removeMonitor(globalKeyMonitor) }
+        if let localKeyMonitor { NSEvent.removeMonitor(localKeyMonitor) }
+        globalKeyMonitor = nil
+        localKeyMonitor = nil
     }
 
     func stop() {
@@ -72,9 +85,12 @@ final class FnHotkeyMonitor {
         if fnDown && !isDown {
             isDown = true
             cancelledThisHold = false
+            // Install before onPress so Esc works from the instant recording starts.
+            installKeyMonitors()
             onPress()
         } else if !fnDown && isDown {
             isDown = false
+            removeKeyMonitors()
             if cancelledThisHold {
                 cancelledThisHold = false
             } else {
