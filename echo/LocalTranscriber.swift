@@ -134,17 +134,18 @@ final class LocalTranscriber {
         let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [module])
         try await analyzer.prepareToAnalyze(in: format)
 
-        lock.lock()
-        self.analyzer = analyzer
-        self.analyzerFormat = format
-        self.inputBuilder = continuation
-        self.resultsTask = resultsTask
-        self.converter = nil
-        let held = pendingBuffers
-        pendingBuffers = []
-        sessionReady = true
-        for buffer in held { ingest(buffer) }
-        lock.unlock()
+        let held: [AVAudioPCMBuffer] = lock.withLock {
+            self.analyzer = analyzer
+            self.analyzerFormat = format
+            self.inputBuilder = continuation
+            self.resultsTask = resultsTask
+            self.converter = nil
+            let held = pendingBuffers
+            pendingBuffers = []
+            sessionReady = true
+            for buffer in held { ingest(buffer) }
+            return held
+        }
         log.info("local session started (\(requested.identifier, privacy: .public), \(vocabulary.isEmpty ? "SpeechTranscriber" : "DictationTranscriber + \(vocabulary.count) vocab terms", privacy: .public), flushed \(held.count, privacy: .public) held buffers)")
     }
 
@@ -220,11 +221,9 @@ final class LocalTranscriber {
     /// returns the full transcript. The interesting measurement is how long this
     /// takes: the audio already streamed in during recording.
     func finish() async throws -> String {
-        lock.lock()
-        let analyzer = self.analyzer
-        let resultsTask = self.resultsTask
-        let inputBuilder = self.inputBuilder
-        lock.unlock()
+        let (analyzer, resultsTask, inputBuilder) = lock.withLock {
+            (self.analyzer, self.resultsTask, self.inputBuilder)
+        }
         guard let analyzer, let resultsTask else { throw LocalError.noSession }
         inputBuilder?.finish()
         do {
