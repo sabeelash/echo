@@ -17,39 +17,39 @@ struct HelpView: View {
                 .foregroundStyle(.red)
                 .frame(width: 28, height: 28)
 
-            Text("How echo works")
+            Text("How Echo works")
                 .font(.headline)
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     section("Shortcuts") {
                         Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
-                            shortcutRow("Hold Fn", "Dictate — speak while holding, release to paste.")
-                            shortcutRow("Esc", "Cancel a dictation mid-hold. Nothing is transcribed.")
+                            shortcutRow("Hold Fn", "Dictate. Speak while you hold, release to paste.")
+                            shortcutRow("Esc", "Cancel while dictating. Nothing is transcribed or pasted.")
                         }
                     }
 
                     section("Styles") {
-                        Text("**Professional** — clean sentences with proper capitalization and punctuation. Great for email and docs.")
-                        Text("**Casual** — relaxed, all-lowercase. Made for chat.")
-                        Text("Both write numbers as digits — “3pm”, “$12,500”, “room 204”.")
+                        Text("**Professional** — clean sentences with proper capitalization and punctuation. Suited to email and documents.")
+                        Text("**Casual** — relaxed and all-lowercase, the way you'd type in chat.")
+                        Text("Both styles write numbers as digits — “3pm”, “$12,500”, “room 204”.")
                             .foregroundStyle(.secondary)
                     }
 
                     section("Engines") {
-                        Text("**On-device** — Apple's speech model, running entirely on your Mac. No network round-trip, so it's the fastest option, and your audio never leaves the machine.")
-                        Text("**Groq** — Whisper in the cloud. Extremely accurate and still quick; needs an internet connection.")
-                        Text("If an on-device dictation ever fails, echo quietly retries the same audio through Groq — you just get your text.")
+                        Text("**On-device** — Apple's speech model, running entirely on your Mac. The fastest option — no network round-trip — and your audio never leaves the machine.")
+                        Text("**Groq** — Whisper running in the cloud. Extremely accurate and still quick, but needs an internet connection.")
+                        Text("If an on-device dictation fails, Echo automatically retries the same audio through Groq — you still get your text.")
                             .foregroundStyle(.secondary)
-                        Text("Heads-up: Groq currently runs on a built-in API key. A bring-your-own-key setting is on the way.")
+                        Text("Groq currently uses a built-in API key. A bring-your-own-key setting is on the way.")
                             .foregroundStyle(.secondary)
                     }
 
                     section("Permissions") {
-                        Text("echo needs two permissions, both under System Settings → Privacy & Security:")
-                        Text("**Microphone** — to hear you. If recordings come back empty, check this first.")
-                        Text("**Accessibility** — powers the Fn hotkey and instant paste. Without it, the hotkey stops responding and pasting silently falls back or fails.")
-                        Text("Fastest fix: choose Settings → Request Permissions from the menu bar and grant both.")
+                        Text("Echo needs two permissions, both in System Settings → Privacy & Security:")
+                        Text("**Microphone** — so Echo can hear you. If dictations come back empty, check this first.")
+                        Text("**Accessibility** — powers the Fn hotkey and instant paste. Without it, the hotkey won't respond and pasting can silently fail.")
+                        Text("The quickest fix: choose Settings → Request Permissions from the menu bar and grant both.")
                             .foregroundStyle(.secondary)
                     }
                 }
