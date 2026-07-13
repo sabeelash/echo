@@ -32,8 +32,10 @@ final class RecordingOverlay {
     }
 
     private func makePanel() -> NSPanel {
+        // Wide enough for an error reason; the panel itself is transparent and
+        // mouse-transparent, so the unused width around the capsule is invisible.
         let p = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 180, height: 48),
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 48),
             styleMask: [.nonactivatingPanel, .borderless],
             backing: .buffered,
             defer: false
@@ -86,9 +88,10 @@ private struct RecordingOverlayView: View {
             HStack(spacing: 6) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(.red)
-                Text("Failed")
+                Text(controller.errorReason.isEmpty ? "Failed" : controller.errorReason)
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.primary)
+                    .lineLimit(1)
             }
             .frame(height: 18)
         case .idle:

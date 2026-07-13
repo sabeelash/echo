@@ -39,8 +39,9 @@ final class DictationController {
     /// is discarded instead of burning a round-trip and pasting garbage.
     private static let minimumHold: TimeInterval = 0.3
 
-    /// How long the overlay's red "failed" state stays up before dismissing.
-    private static let errorFlashDuration: TimeInterval = 1.2
+    /// How long the overlay's red error state stays up before dismissing —
+    /// long enough to read the failure reason, short enough not to nag.
+    private static let errorFlashDuration: TimeInterval = 2.5
 
     /// Token for the `beginActivity` that keeps macOS from throttling (App Nap)
     /// the audio engine / network mid-dictation. Held for the whole hold →
@@ -51,6 +52,10 @@ final class DictationController {
     @ObservationIgnored private var recordingStartedAt: Date?
 
     private(set) var phase: Phase = .idle
+
+    /// Why the current `.error` flash is up, worded for the user. Shown in the
+    /// overlay and menu bar in place of a bare "Failed".
+    private(set) var errorReason: String = ""
 
     func start() {
         hotkey.onPress = { [weak self] in self?.beginRecording() }
@@ -87,7 +92,8 @@ final class DictationController {
         } catch {
             log.error("record start failed: \(error.localizedDescription, privacy: .public)")
             abandonLocalSession()
-            endActivity()
+            // flashError ends the activity once the flash dismisses.
+            Task { await flashError("Couldn't start recording — check microphone access") }
         }
     }
 
@@ -191,7 +197,9 @@ final class DictationController {
             if raw == nil {
                 guard let key else {
                     log.error("transcribe skipped: no API key")
-                    await flashError()
+                    await flashError(session != nil
+                        ? "On-device engine failed — no API key to fall back to"
+                        : "No API key — add one in Settings")
                     return
                 }
                 do {
@@ -200,7 +208,7 @@ final class DictationController {
                     )
                 } catch {
                     log.error("transcribe failed: \(error.localizedDescription, privacy: .public)")
-                    await flashError()
+                    await flashError(Self.failureReason(for: error))
                     return
                 }
             }
@@ -209,7 +217,7 @@ final class DictationController {
             let dt = Date().timeIntervalSince(start)
             guard !text.isEmpty else {
                 log.info("empty transcript — nothing to paste")
-                await flashError()
+                await flashError("No speech detected")
                 return
             }
             log.info("Transcribed in \(dt, privacy: .public)s: \(text, privacy: .private)")
@@ -228,7 +236,8 @@ final class DictationController {
     /// Fail loudly: hold the overlay in a red error state briefly before
     /// dismissing, so a failed dictation never just vanishes. While the flash
     /// is up `phase` is `.error`, which also blocks a new hold from starting.
-    private func flashError() async {
+    private func flashError(_ reason: String) async {
+        errorReason = reason
         phase = .error
         overlay.show()
         try? await Task.sleep(for: .seconds(Self.errorFlashDuration))
@@ -269,6 +278,54 @@ final class DictationController {
                 resumeOnce(nil)
             }
         }
+    }
+
+    /// Maps a transcription error to a short, user-facing reason for the error
+    /// flash. Groq's own error message is surfaced when the body carries one;
+    /// otherwise the status code / transport failure picks a category.
+    private static func failureReason(for error: Error) -> String {
+        switch error {
+        case GroqError.missingKey:
+            return "No API key — add one in Settings"
+        case GroqError.badResponse:
+            return "Unreadable response from Groq"
+        case let GroqError.http(code, body):
+            if let message = groqErrorMessage(from: body) { return message }
+            switch code {
+            case 401, 403: return "Invalid API key — check Settings"
+            case 413: return "Recording too large for Groq"
+            case 429: return "Rate limited by Groq — try again shortly"
+            case 500...: return "Groq server error (HTTP \(code))"
+            default: return "Groq request failed (HTTP \(code))"
+            }
+        case let urlError as URLError:
+            switch urlError.code {
+            case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed:
+                return "No internet connection"
+            case .timedOut:
+                return "Request timed out"
+            case .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed, .secureConnectionFailed:
+                return "Can't reach Groq"
+            default:
+                return "Network error — try again"
+            }
+        default:
+            return "Transcription failed"
+        }
+    }
+
+    /// Pulls `error.message` out of a Groq error body (OpenAI-style
+    /// `{"error":{"message":…}}`), truncated to fit the overlay.
+    private static func groqErrorMessage(from body: String) -> String? {
+        struct ErrorBody: Decodable {
+            struct Inner: Decodable { let message: String }
+            let error: Inner
+        }
+        guard let data = body.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode(ErrorBody.self, from: data) else { return nil }
+        let message = decoded.error.message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !message.isEmpty else { return nil }
+        return message.count > 80 ? String(message.prefix(77)) + "…" : message
     }
 
     /// Fire-and-forget cleanup of a local session whose dictation was abandoned.

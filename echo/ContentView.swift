@@ -19,7 +19,9 @@ struct MenuBarView: View {
         case .idle:         Label("Idle", systemImage: "circle")
         case .recording:    Label("Recording…", systemImage: "record.circle")
         case .transcribing: Label("Transcribing…", systemImage: "ellipsis.circle")
-        case .error:        Label("Failed", systemImage: "exclamationmark.circle")
+        case .error:
+            Label(dictation.errorReason.isEmpty ? "Failed" : dictation.errorReason,
+                  systemImage: "exclamationmark.circle")
         }
 
         // The active configuration at a glance, without opening Settings.
