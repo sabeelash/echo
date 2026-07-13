@@ -226,7 +226,13 @@ final class DictationController {
             // concern, then insert into whatever field the user had focused.
             phase = .idle
             overlay.hide()
-            await Paster.paste(text)
+            guard await Paster.paste(text) else {
+                // The transcript didn't land anywhere visible; Paster left it
+                // on the clipboard, so tell the user ⌘V recovers it.
+                log.error("paste failed — transcript left on clipboard")
+                await flashError("Couldn't paste — transcript is on the clipboard")
+                return
+            }
             // Paste is the last step on the critical path — release the
             // anti-throttling activity now that the cycle is complete.
             endActivity()

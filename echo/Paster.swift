@@ -23,14 +23,17 @@ import os
 enum Paster {
     private static let log = Logger(subsystem: "sabeel.echo", category: "paste")
 
-    static func paste(_ text: String) async {
-        guard !text.isEmpty else { return }
+    /// Returns whether the text observably landed. False means neither path
+    /// worked; the transcript is left on the clipboard so ⌘V can recover it.
+    @discardableResult
+    static func paste(_ text: String) async -> Bool {
+        guard !text.isEmpty else { return true }
         if insertViaAX(text) {
             log.info("Pasted via AX")
-            return
+            return true
         }
         log.info("AX insertion unavailable — using clipboard fallback")
-        await pasteViaClipboard(text)
+        return await pasteViaClipboard(text)
     }
 
     // MARK: - Accessibility insertion
@@ -76,7 +79,7 @@ enum Paster {
 
     // MARK: - Clipboard fallback
 
-    private static func pasteViaClipboard(_ text: String) async {
+    private static func pasteViaClipboard(_ text: String) async -> Bool {
         let pb = NSPasteboard.general
         let saved = snapshot(pb)
 
@@ -103,14 +106,24 @@ enum Paster {
         // handling the paste still sees the transcript, not the restore.
         try? await Task.sleep(for: .milliseconds(50))
 
+        // Nothing read the pasteboard within the deadline: the ⌘V never landed
+        // (no editable field focused, Accessibility permission revoked, …).
+        // Skip the restore so the transcript stays on the clipboard — a manual
+        // ⌘V still recovers the dictation.
+        guard provider.consumed else {
+            log.error("Paste not consumed — leaving transcript on clipboard")
+            return false
+        }
+
         // If something else wrote to the pasteboard while we waited (clipboard
         // manager, the user copying), restoring now would clobber it — leave
         // the pasteboard alone.
         guard pb.changeCount == ourChangeCount else {
             log.info("Pasteboard changed while pasting — skipping restore")
-            return
+            return true
         }
         restore(saved, to: pb)
+        return true
     }
 
     /// Serves the transcript to whoever reads the pasteboard and records that
