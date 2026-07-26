@@ -99,6 +99,11 @@ struct MenuBarView: View {
 
             LaunchAtLoginToggle()
 
+            Button("Groq API Key…") {
+                NSApp.activate(ignoringOtherApps: true)
+                openWindow(id: "api-key")
+            }
+
             Button("Custom Vocabulary…") {
                 NSApp.activate(ignoringOtherApps: true)
                 openWindow(id: "vocabulary")

@@ -41,7 +41,7 @@ struct HelpView: View {
                         Text("**Groq** — Whisper running in the cloud. Extremely accurate and still quick, but needs an internet connection.")
                         Text("If an on-device dictation fails, Echo automatically retries the same audio through Groq — you still get your text.")
                             .foregroundStyle(.secondary)
-                        Text("Groq currently uses a built-in API key. A bring-your-own-key setting is on the way.")
+                        Text("Your Groq API key is stored securely in macOS Keychain. You can update it from Settings → Groq API Key.")
                             .foregroundStyle(.secondary)
                     }
 

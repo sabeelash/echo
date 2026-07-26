@@ -1,0 +1,18 @@
+# macOS
+.DS_Store
+
+# Xcode user state and local build output
+xcuserdata/
+*.xcuserstate
+*.xccheckout
+*.xcscmblueprint
+DerivedData/
+build/
+
+# Local tool settings
+.claude/settings.local.json
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example

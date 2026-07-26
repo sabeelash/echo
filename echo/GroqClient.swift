@@ -3,8 +3,8 @@
 //  echo
 //
 //  Minimal client for Groq's OpenAI-compatible audio transcription endpoint.
-//  The API key, model, and language come from AppSettings (Keychain-backed
-//  key, with a GROQ_KEY env-var fallback for the ⌘R dev flow).
+//  The API key, model, and language come from AppSettings (with the key stored
+//  securely in macOS Keychain).
 //
 
 import Foundation

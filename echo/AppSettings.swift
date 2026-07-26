@@ -4,7 +4,7 @@
 //
 //  Single source of truth for user-configurable settings. Language and model
 //  persist to UserDefaults and are toggled from the menu bar. The Groq API key
-//  comes from the GROQ_KEY env var for now (no settings UI yet).
+//  is stored separately in macOS Keychain.
 //
 
 import Foundation
@@ -238,16 +238,8 @@ final class AppSettings {
         defaults.set(transcriptionsToday, forKey: Keys.transcriptionsToday)
     }
 
-    /// The key the network layer should use. Prefers a hardcoded key (personal
-    /// use; works in an `open`ed .app), falling back to the GROQ_KEY env var
-    /// from the Xcode scheme (⌘R only). Replace with Keychain later — see
-    /// keychain-todo.md. Don't commit a real key.
+    /// The Keychain-backed key the network layer should use.
     var resolvedAPIKey: String? {
-        let hardcoded = "gsk_PASTE_YOUR_KEY_HERE"
-        if !hardcoded.isEmpty, hardcoded != "gsk_PASTE_YOUR_KEY_HERE" {
-            return hardcoded
-        }
-        let env = ProcessInfo.processInfo.environment["GROQ_KEY"]
-        return (env?.isEmpty == false) ? env : nil
+        try? APIKeyStore.load()
     }
 }

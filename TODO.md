@@ -28,8 +28,7 @@
 
 # For Later, DO NOT DO THESE NOW.
 
-- [ ] Bring-your-own-key settings UI: replace the hardcoded/env-var Groq key (`AppSettings.resolvedAPIKey`) with a settings UI where users paste their own key, stored in Keychain.
-  `resolvedAPIKey` at [AppSettings.swift:242-249](echo/AppSettings.swift:242) currently checks a hardcoded placeholder string (`"gsk_PASTE_YOUR_KEY_HERE"`) first, then falls back to the `GROQ_KEY` environment variable. Replace this with: a settings UI (likely a new field in the "Settings" submenu or a dedicated window) where the user pastes their Groq API key, persisted via macOS Keychain (per the tech stack table in `CLAUDE.md` — Keychain is designated for the Groq API key, `UserDefaults`/`@AppStorage` for everything else). `resolvedAPIKey` should then read from Keychain instead of the hardcoded string/env var.
+- [x] Bring-your-own-key settings UI: the first-run/setup panel and **Settings → Groq API Key…** both save the user's key in macOS Keychain. `AppSettings.resolvedAPIKey` reads only from Keychain; no key or environment-variable fallback is embedded in the app.
 
 - [ ] Filler-word removal (um/uh/like) as a style post-process — cheap via a regex sweep, called out as the next easy win in status.md but not yet built.
   Per `status.md` (line 63), this belongs in the "cheap & reliable" bucket — a deterministic regex sweep over the transcript, not something achievable via the Groq prompt bias alone. Likely implemented as another branch in (or alongside) `TranscriptionStyle.postProcess(_:)` at [AppSettings.swift:104-109](echo/AppSettings.swift:104), stripping standalone `um`/`uh`/`like` tokens (word-boundary matches, case-insensitive) after the transcript comes back, before it's pasted. Open question: whether it's on-by-default, tied to a specific style, or a separate toggle — not yet decided.

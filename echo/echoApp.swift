@@ -30,8 +30,13 @@ struct echoApp: App {
         MenuBarExtra {
             MenuBarView()
         } label: {
-            Image("MenuBarIcon")
+            MenuBarLabel()
         }
+
+        Window("Groq API Key", id: "api-key") {
+            APIKeyView()
+        }
+        .windowResizability(.contentSize)
 
         // TEMPORARY stage-1 debug window for the record→transcribe round-trip.
         // Debug builds only — stripped from exported/release builds.
@@ -51,5 +56,25 @@ struct echoApp: App {
             HelpView()
         }
         .windowResizability(.contentSize)
+    }
+}
+
+/// The menu-bar label exists from app launch, so it is also a reliable place
+/// to trigger the one-time setup window before the menu itself is ever opened.
+private struct MenuBarLabel: View {
+    @Environment(\.openWindow) private var openWindow
+    @State private var checkedForAPIKey = false
+
+    var body: some View {
+        Image("MenuBarIcon")
+            .task {
+                guard !checkedForAPIKey else { return }
+                checkedForAPIKey = true
+                guard AppSettings.shared.resolvedAPIKey == nil else { return }
+
+                await Task.yield()
+                NSApp.activate(ignoringOtherApps: true)
+                openWindow(id: "api-key")
+            }
     }
 }
