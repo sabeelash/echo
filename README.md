@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/echo-logo.svg" width="160" alt="Echo logo">
+</p>
+
 # Echo
 
 Echo is a fast, native macOS dictation app. Hold the Fn key, speak, and release
