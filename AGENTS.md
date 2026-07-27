@@ -5,3 +5,5 @@
 3. Focus on clean code above all. Short functions, descriptive names, and code that tells a simple story. The code should be as simple as possible. Comment it out well. Human readability is important. Prefer simple, human readable code above clever optimized code.
 4. Prefer simple code over "very robust" code. Sacrificing a bit of robustness over code is the correct approach. There will always be bugs and holes. Our responsibility is keeping it 90% usable.
 5. Beauty is important and desirable. The app should be beautiful. Everyone has a right to enjoy beautiful well designed products. Echo should be a joy to use in and out.
+
+No need to test the app after every change. Just ask me to run it if the changes are big.

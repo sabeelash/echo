@@ -24,13 +24,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 @main
 struct echoApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    @State private var dictation = DictationController.shared
 
     var body: some Scene {
         MenuBarExtra {
             MenuBarView()
         } label: {
-            MenuBarLabel()
+            Image("MenuBarIcon")
         }
 
         Window("Groq API Key", id: "api-key") {
@@ -56,25 +55,5 @@ struct echoApp: App {
             HelpView()
         }
         .windowResizability(.contentSize)
-    }
-}
-
-/// The menu-bar label exists from app launch, so it is also a reliable place
-/// to trigger the one-time setup window before the menu itself is ever opened.
-private struct MenuBarLabel: View {
-    @Environment(\.openWindow) private var openWindow
-    @State private var checkedForAPIKey = false
-
-    var body: some View {
-        Image("MenuBarIcon")
-            .task {
-                guard !checkedForAPIKey else { return }
-                checkedForAPIKey = true
-                guard AppSettings.shared.resolvedAPIKey == nil else { return }
-
-                await Task.yield()
-                NSApp.activate(ignoringOtherApps: true)
-                openWindow(id: "api-key")
-            }
     }
 }
