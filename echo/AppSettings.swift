@@ -124,8 +124,6 @@ final class AppSettings {
         static let inputDeviceUID = "inputDeviceUID"
         static let vocabularyPrompt = "vocabularyPrompt"
         static let style = "style"
-        static let transcriptionsToday = "transcriptionsToday"
-        static let transcriptionsDate = "transcriptionsDate"
         static let totalWords = "totalWords"
     }
 
@@ -183,18 +181,8 @@ final class AppSettings {
     /// Transcript". Runtime-only — intentionally not persisted.
     var lastTranscript: String = ""
 
-    /// Round-trip seconds of the most recent transcription (upload + inference).
-    /// Runtime-only — a per-session speed readout, nil until the first dictation.
-    var lastLatency: TimeInterval?
-
-    /// Successful transcriptions so far today; rolls over at midnight. Persisted.
-    private(set) var transcriptionsToday: Int
-
-    /// Lifetime count of words dictated. Persisted vanity metric.
+    /// Lifetime count of words dictated.
     private(set) var totalWords: Int
-
-    /// The day `transcriptionsToday` belongs to, so we can reset across midnight.
-    @ObservationIgnored private var countDate: Date
 
     private init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -207,35 +195,14 @@ final class AppSettings {
         self.vocabularyPrompt = defaults.string(forKey: Keys.vocabularyPrompt) ?? ""
         self.style = defaults.string(forKey: Keys.style)
             .flatMap(TranscriptionStyle.init(rawValue:)) ?? .professional
-        self.transcriptionsToday = defaults.integer(forKey: Keys.transcriptionsToday)
         self.totalWords = defaults.integer(forKey: Keys.totalWords)
-        self.countDate = defaults.object(forKey: Keys.transcriptionsDate) as? Date ?? Date()
     }
 
-    /// Record a successful transcription: stores it for "Copy Last Transcript",
-    /// updates the latency readout, bumps today's count (resetting if the day
-    /// rolled over), and adds to the lifetime word total.
-    func recordTranscription(_ text: String, latency: TimeInterval) {
+    /// Stores the latest transcript and adds it to the lifetime word count.
+    func recordTranscription(_ text: String) {
         lastTranscript = text
-        lastLatency = latency
-
-        rollOverDailyCountIfNeeded()
-        transcriptionsToday += 1
-        defaults.set(transcriptionsToday, forKey: Keys.transcriptionsToday)
-
         totalWords += text.split(whereSeparator: \.isWhitespace).count
         defaults.set(totalWords, forKey: Keys.totalWords)
-    }
-
-    /// Resets `transcriptionsToday` when the day has changed. Called before
-    /// every bump, and by the menu when it opens — otherwise the count would
-    /// show yesterday's number until the next dictation happened to roll it.
-    func rollOverDailyCountIfNeeded() {
-        guard !Calendar.current.isDateInToday(countDate) else { return }
-        transcriptionsToday = 0
-        countDate = Date()
-        defaults.set(countDate, forKey: Keys.transcriptionsDate)
-        defaults.set(transcriptionsToday, forKey: Keys.transcriptionsToday)
     }
 
     /// The Keychain-backed key the network layer should use.

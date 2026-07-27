@@ -2,12 +2,9 @@
 //  LocalTranscriber.swift
 //  echo
 //
-//  PROTOTYPE: on-device transcription via the macOS 26 SpeechAnalyzer /
-//  SpeechTranscriber API, for a head-to-head latency comparison against Groq
-//  in the Debug window. One instance runs one streaming session at a time:
-//  `startSession` loads the model, `feed` streams tap buffers while the user
-//  is still speaking (so almost nothing is left to do at stop), `finish`
-//  finalizes and returns the transcript.
+//  On-device transcription via the macOS 26 SpeechAnalyzer APIs. One instance
+//  runs one streaming session at a time: `startSession` loads the model, `feed`
+//  streams audio while the user speaks, and `finish` returns the transcript.
 //
 //  The model asset is downloaded and managed by the system (AssetInventory)
 //  and inference runs out of process, so this adds nothing to echo's memory
@@ -52,16 +49,6 @@ final class LocalTranscriber {
     private var pendingBuffers: [AVAudioPCMBuffer] = []
     private var sessionReady = false
 
-    /// Live transcript (finalized prefix + current volatile tail) while audio is
-    /// still streaming in. Called off the main thread — hop before touching UI.
-    var onPartial: (@Sendable (String) -> Void)?
-
-    var isSessionActive: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return analyzer != nil
-    }
-
     /// Creates the transcriber for `languageCode` (ISO-639-1, "" = system locale),
     /// downloads the model asset if this is the first use, preheats it, and starts
     /// the analyzer on a fresh input stream. Call before recording begins so model
@@ -78,16 +65,14 @@ final class LocalTranscriber {
         guard SpeechTranscriber.isAvailable else { throw LocalError.notAvailable }
 
         let requested = Locale(identifier: languageCode.isEmpty ? Locale.current.identifier : languageCode)
-        let onPartial = self.onPartial
-
         let module: any SpeechModule
         let resultsTask: Task<String, Error>
         if vocabulary.isEmpty {
             guard let locale = await SpeechTranscriber.supportedLocale(equivalentTo: requested) else {
                 throw LocalError.localeUnsupported(requested.identifier)
             }
-            // Volatile results give the live in-progress transcript; fastResults
-            // biases the module toward low latency over batch throughput.
+            // fastResults biases the module toward low latency over batch
+            // throughput.
             let transcriber = SpeechTranscriber(
                 locale: locale,
                 transcriptionOptions: [],
@@ -95,7 +80,7 @@ final class LocalTranscriber {
                 attributeOptions: []
             )
             module = transcriber
-            resultsTask = Self.collect(transcriber.results.map { (String($0.text.characters), $0.isFinal) }, onPartial: onPartial)
+            resultsTask = Self.collect(transcriber.results.map { (String($0.text.characters), $0.isFinal) })
         } else {
             guard let locale = await DictationTranscriber.supportedLocale(equivalentTo: requested) else {
                 throw LocalError.localeUnsupported(requested.identifier)
@@ -108,7 +93,7 @@ final class LocalTranscriber {
                 attributeOptions: []
             )
             module = transcriber
-            resultsTask = Self.collect(transcriber.results.map { (String($0.text.characters), $0.isFinal) }, onPartial: onPartial)
+            resultsTask = Self.collect(transcriber.results.map { (String($0.text.characters), $0.isFinal) })
         }
 
         if let request = try await AssetInventory.assetInstallationRequest(supporting: [module]) {
@@ -149,22 +134,14 @@ final class LocalTranscriber {
         log.info("local session started (\(requested.identifier, privacy: .public), \(vocabulary.isEmpty ? "SpeechTranscriber" : "DictationTranscriber + \(vocabulary.count) vocab terms", privacy: .public), flushed \(held.count, privacy: .public) held buffers)")
     }
 
-    /// Accumulates a module's result stream into the final transcript, feeding
-    /// `onPartial` along the way: finalized segments append; a non-final
-    /// (volatile) result is a revision of the current tail.
+    /// Accumulates the finalized segments from a module's result stream.
     private static func collect<S: AsyncSequence & Sendable>(
-        _ results: S,
-        onPartial: (@Sendable (String) -> Void)?
+        _ results: S
     ) -> Task<String, Error> where S.Element == (String, Bool) {
         Task {
             var finalized = ""
             for try await (text, isFinal) in results {
-                if isFinal {
-                    finalized += text
-                    onPartial?(finalized)
-                } else {
-                    onPartial?(finalized + text)
-                }
+                if isFinal { finalized += text }
             }
             return finalized.trimmingCharacters(in: .whitespacesAndNewlines)
         }

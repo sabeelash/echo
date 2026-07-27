@@ -88,7 +88,6 @@ final class DictationController {
 
     private func transcribeAndPaste(_ recording: URL) async {
         defer { try? FileManager.default.removeItem(at: recording) }
-        let startedAt = Date()
 
         let text: String
         do {
@@ -99,15 +98,14 @@ final class DictationController {
             return
         }
 
-        let latency = Date().timeIntervalSince(startedAt)
         guard !text.isEmpty else {
             log.info("empty transcript — nothing to paste")
             await flashError("No speech detected")
             return
         }
 
-        log.info("Transcribed in \(latency, privacy: .public)s: \(text, privacy: .private)")
-        AppSettings.shared.recordTranscription(text, latency: latency)
+        log.info("Transcribed: \(text, privacy: .private)")
+        AppSettings.shared.recordTranscription(text)
 
         // Hide Echo before inserting into the field that was previously focused.
         phase = .idle

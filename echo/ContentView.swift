@@ -55,10 +55,7 @@ struct MenuBarView: View {
 
         Divider()
 
-        Text(statsSummary)
-            // The menu is rebuilt each time it opens, so this fires per open —
-            // roll the daily count over so it never shows yesterday's number.
-            .onAppear { settings.rollOverDailyCountIfNeeded() }
+        Text("\(settings.totalWords) words")
 
         Divider()
 
@@ -112,16 +109,6 @@ struct MenuBarView: View {
         }
         parts.append(settings.style.displayName)
         return parts.joined(separator: " · ")
-    }
-
-    /// Usage stats on one compact line, e.g. "3 today · 1204 words · 1.2s".
-    /// The latency segment appears once the first dictation of the session lands.
-    private var statsSummary: String {
-        var line = "\(settings.transcriptionsToday) today · \(settings.totalWords) words"
-        if let latency = settings.lastLatency {
-            line += String(format: " · %.1fs", latency)
-        }
-        return line
     }
 
     /// First ~40 characters of the last transcript, collapsed to one line, for
