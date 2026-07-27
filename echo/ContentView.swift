@@ -12,6 +12,7 @@ struct MenuBarView: View {
     @Environment(\.openWindow) private var openWindow
     @State private var settings = AppSettings.shared
     @State private var dictation = DictationController.shared
+    @State private var devices: [AudioInputDevice] = []
 
     var body: some View {
         // Live state + hotkey reminder.
@@ -20,8 +21,7 @@ struct MenuBarView: View {
         case .recording:    Label("Recording…", systemImage: "record.circle")
         case .transcribing: Label("Transcribing…", systemImage: "ellipsis.circle")
         case .error:
-            Label(dictation.errorReason.isEmpty ? "Failed" : dictation.errorReason,
-                  systemImage: "exclamationmark.circle")
+            Label(dictation.errorReason, systemImage: "exclamationmark.circle")
         }
 
         // The active configuration at a glance, without opening Settings.
@@ -35,7 +35,7 @@ struct MenuBarView: View {
             }
         }
         .onChange(of: settings.engine) { _, engine in
-            guard engine == .groq, settings.resolvedAPIKey == nil else { return }
+            guard engine == .groq, (try? APIKeyStore.load()) == nil else { return }
             NSApp.activate(ignoringOtherApps: true)
             openWindow(id: "api-key")
         }
@@ -55,7 +55,13 @@ struct MenuBarView: View {
             }
         }
 
-        MicrophonePicker()
+        Picker("Microphone", selection: $settings.inputDeviceUID) {
+            Text("System Default").tag(String?.none)
+            ForEach(devices) { device in
+                Text(device.name).tag(Optional(device.uid))
+            }
+        }
+        .onAppear { devices = AudioDevices.inputDevices() }
 
         Divider()
 
@@ -97,9 +103,8 @@ struct MenuBarView: View {
             }
 
             Button("Request Permissions") {
-                Permissions.logStatusOnLaunch()
                 Permissions.requestMicrophone()
-                Permissions.checkAccessibility(prompt: true)
+                Permissions.requestAccessibility()
             }
 
             LaunchAtLoginToggle()
@@ -113,13 +118,6 @@ struct MenuBarView: View {
                 NSApp.activate(ignoringOtherApps: true)
                 openWindow(id: "vocabulary")
             }
-
-            #if DEBUG
-            Button("Open Debug…") {
-                NSApp.activate(ignoringOtherApps: true)
-                openWindow(id: "debug")
-            }
-            #endif
         }
 
         Button("Help…") {
@@ -187,22 +185,5 @@ private struct LaunchAtLoginToggle: View {
                     enabled = SMAppService.mainApp.status == .enabled
                 }
             }
-    }
-}
-
-/// Mic chooser. Split into its own view so the device list can be (re)read from
-/// Core Audio when the menu opens, rather than once at app launch.
-private struct MicrophonePicker: View {
-    @State private var settings = AppSettings.shared
-    @State private var devices: [AudioInputDevice] = []
-
-    var body: some View {
-        Picker("Microphone", selection: $settings.inputDeviceUID) {
-            Text("System Default").tag(String?.none)
-            ForEach(devices) { device in
-                Text(device.name).tag(Optional(device.uid))
-            }
-        }
-        .onAppear { devices = AudioDevices.inputDevices() }
     }
 }

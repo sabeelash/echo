@@ -11,14 +11,11 @@ import Foundation
 import os
 
 enum GroqError: Error, LocalizedError {
-    case missingKey
     case http(Int, String)
     case badResponse
 
     var errorDescription: String? {
         switch self {
-        case .missingKey:
-            return "No Groq API key — add one in Settings."
         case .http(let code, let body):
             return "Groq HTTP \(code): \(body)"
         case .badResponse:
@@ -27,10 +24,10 @@ enum GroqError: Error, LocalizedError {
     }
 }
 
-struct GroqClient {
+enum GroqClient {
     private static let log = Logger(subsystem: "sabeel.echo", category: "groq")
 
-    private let endpoint = URL(string: "https://api.groq.com/openai/v1/audio/transcriptions")!
+    private static let endpoint = URL(string: "https://api.groq.com/openai/v1/audio/transcriptions")!
 
     private struct TranscriptionResponse: Decodable { let text: String }
 
@@ -39,7 +36,7 @@ struct GroqClient {
     /// paying the handshake (~2-3 round trips) on the critical path after the
     /// user releases Fn. Fire-and-forget: a HEAD to the endpoint 405s, but the
     /// connection it establishes is what we're after, so the result is ignored.
-    func prewarm() {
+    static func prewarm() {
         var request = URLRequest(url: endpoint)
         request.httpMethod = "HEAD"
         request.timeoutInterval = 5
@@ -51,15 +48,13 @@ struct GroqClient {
     /// `language` is an ISO-639-1 code; pass "" to let Groq auto-detect.
     /// `prompt` biases spelling/style toward provided terms (names, jargon);
     /// Groq caps it at 224 tokens. Pass "" to omit it.
-    func transcribe(
+    static func transcribe(
         fileURL: URL,
         key: String,
-        model: String = GroqModel.turbo.rawValue,
-        language: String = "en",
-        prompt: String = ""
+        model: String,
+        language: String,
+        prompt: String
     ) async throws -> String {
-        guard !key.isEmpty else { throw GroqError.missingKey }
-
         let boundary = "echo-\(UUID().uuidString)"
 
         // Assemble the multipart body on disk and upload it from the file, so the
@@ -76,7 +71,7 @@ struct GroqClient {
         defer { try? out.close() }
 
         func write(_ string: String) throws {
-            if let d = string.data(using: .utf8) { try out.write(contentsOf: d) }
+            try out.write(contentsOf: Data(string.utf8))
         }
         func textField(_ name: String, _ value: String) throws {
             try write("--\(boundary)\r\n")
@@ -111,7 +106,7 @@ struct GroqClient {
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 
-        let bodySize = (try? FileManager.default.attributesOfItem(atPath: bodyURL.path)[.size] as? Int) ?? nil
+        let bodySize = (try? FileManager.default.attributesOfItem(atPath: bodyURL.path)[.size]) as? Int
         Self.log.info("POST \(model, privacy: .public) — \(bodySize ?? -1, privacy: .public) bytes (multipart body)")
         let (data, response) = try await URLSession.shared.upload(for: request, fromFile: bodyURL)
 
@@ -123,11 +118,5 @@ struct GroqClient {
             throw GroqError.badResponse
         }
         return decoded.text.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-}
-
-private extension Data {
-    mutating func append(_ string: String) {
-        if let d = string.data(using: .utf8) { append(d) }
     }
 }

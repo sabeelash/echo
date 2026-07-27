@@ -40,7 +40,7 @@ Groq's cloud-hosted Whisper models.
 5. If macOS assigns another action to Fn, open **System Settings → Keyboard**
    and set **Press 🌐 key to** to **Do Nothing**.
 
-You can also build and test from the command line:
+You can also build from the command line:
 
 ```bash
 xcodebuild \
@@ -48,17 +48,13 @@ xcodebuild \
   -scheme echo \
   -configuration Debug \
   build
-
-xcodebuild test \
-  -project echo.xcodeproj \
-  -scheme echo \
-  -destination 'platform=macOS'
 ```
 
 ## Set up transcription
 
-Echo opens the Groq API key panel on first launch. The key is stored in macOS
-Keychain and can be changed later from **Settings → Groq API Key…**.
+When you select the Groq engine, Echo asks for an API key if none is saved. The
+key is stored in macOS Keychain and can be changed from
+**Settings → Groq API Key…**.
 
 Choose a transcription engine from the menu bar:
 

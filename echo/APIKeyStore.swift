@@ -9,7 +9,7 @@
 import Foundation
 import Security
 
-enum APIKeyStoreError: LocalizedError {
+private enum APIKeyStoreError: LocalizedError {
     case unexpectedData
     case keychain(OSStatus)
 

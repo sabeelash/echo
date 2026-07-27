@@ -3,8 +3,8 @@
 //  echo
 //
 //  A small floating indicator shown while echo is recording / transcribing.
-//  Implemented as a borderless, non-activating NSPanel hosting a SwiftUI view
-//  (the planned architecture for the recording overlay). It never takes focus,
+//  Implemented as a borderless, non-activating NSPanel hosting a SwiftUI view.
+//  It never takes focus,
 //  ignores the mouse, and floats above other apps on all Spaces.
 //
 
@@ -88,7 +88,7 @@ private struct RecordingOverlayView: View {
             HStack(spacing: 6) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(.red)
-                Text(controller.errorReason.isEmpty ? "Failed" : controller.errorReason)
+                Text(controller.errorReason)
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
@@ -100,7 +100,7 @@ private struct RecordingOverlayView: View {
     }
 }
 
-/// The menu bar icon, pulsing its opacity and scale forever.
+/// The overlay icon, pulsing its opacity and scale while visible.
 private struct PulsingIcon: View {
     let color: Color
     let duration: Double

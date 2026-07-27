@@ -70,16 +70,6 @@ final class FnHotkeyMonitor {
         localKeyMonitor = nil
     }
 
-    func stop() {
-        for monitor in [globalMonitor, localMonitor, globalKeyMonitor, localKeyMonitor] {
-            if let monitor { NSEvent.removeMonitor(monitor) }
-        }
-        globalMonitor = nil
-        localMonitor = nil
-        globalKeyMonitor = nil
-        localKeyMonitor = nil
-    }
-
     private func handle(_ event: NSEvent) {
         let fnDown = event.modifierFlags.contains(.function)
         if fnDown && !isDown {

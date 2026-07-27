@@ -18,7 +18,7 @@ import AudioToolbox
 import os
 
 final class AudioRecorder {
-    enum RecorderError: Error { case formatUnavailable }
+    private enum RecorderError: Error { case formatUnavailable }
 
     private let log = Logger(subsystem: "sabeel.echo", category: "recorder")
     private let engine = AVAudioEngine()
@@ -26,17 +26,16 @@ final class AudioRecorder {
     /// Resamples the hardware tap buffers down to the file's 16 kHz mono format.
     private var converter: AVAudioConverter?
 
-    private(set) var outputURL: URL?
-    private(set) var isRecording = false
+    private var outputURL: URL?
+    private var isRecording = false
 
     /// Optional side-channel for raw hardware-format tap buffers, invoked on the
-    /// audio tap thread while recording. Used by the local-transcription
-    /// prototype to stream audio into SpeechAnalyzer alongside the file write.
+    /// audio tap thread while recording so the local transcriber can stream them.
     var onBuffer: ((AVAudioPCMBuffer) -> Void)?
 
     /// Begins capturing into a fresh .m4a file in the temp dir. `inputDeviceUID`
     /// selects a specific mic by its Core Audio UID; nil uses the system default.
-    func start(inputDeviceUID: String? = nil) throws {
+    func start(inputDeviceUID: String?) throws {
         let input = engine.inputNode
         // Route to the chosen device *before* reading the format — the format
         // (sample rate / channels) depends on which device is active.
@@ -134,7 +133,6 @@ final class AudioRecorder {
     }
 
     /// Stops capture, finalizes the file, and returns its URL.
-    @discardableResult
     func stop() -> URL? {
         guard isRecording else { return outputURL }
         // Order matters: remove the tap (stops callbacks) and stop the engine

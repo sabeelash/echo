@@ -2,9 +2,8 @@
 //  LocalTranscriber.swift
 //  echo
 //
-//  PROTOTYPE: on-device transcription via the macOS 26 SpeechAnalyzer /
-//  SpeechTranscriber API, for a head-to-head latency comparison against Groq
-//  in the Debug window. One instance runs one streaming session at a time:
+//  On-device transcription via the macOS 26 SpeechAnalyzer /
+//  SpeechTranscriber API. One instance runs one streaming session at a time:
 //  `startSession` loads the model, `feed` streams tap buffers while the user
 //  is still speaking (so almost nothing is left to do at stop), `finish`
 //  finalizes and returns the transcript.
@@ -19,7 +18,7 @@ import Speech
 import os
 
 final class LocalTranscriber {
-    enum LocalError: Error, LocalizedError {
+    private enum LocalError: Error, LocalizedError {
         case notAvailable
         case localeUnsupported(String)
         case noSession
@@ -50,17 +49,6 @@ final class LocalTranscriber {
     /// begins recording immediately; the model takes a few hundred ms to come
     /// up). Flushed into the analyzer as soon as it's ready — no speech lost.
     private var pendingBuffers: [AVAudioPCMBuffer] = []
-    private var sessionReady = false
-
-    /// Live transcript (finalized prefix + current volatile tail) while audio is
-    /// still streaming in. Called off the main thread — hop before touching UI.
-    var onPartial: (@Sendable (String) -> Void)?
-
-    var isSessionActive: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return analyzer != nil
-    }
 
     /// Creates the transcriber for `languageCode` (ISO-639-1, "" = system locale),
     /// downloads the model asset if this is the first use, preheats it, and starts
@@ -74,11 +62,10 @@ final class LocalTranscriber {
     /// them (measured: fixed every jargon term the default module misspelled).
     /// Empty vocabulary keeps SpeechTranscriber for its better baseline
     /// accuracy and punctuation.
-    func startSession(languageCode: String, vocabulary: [String] = []) async throws {
+    func startSession(languageCode: String, vocabulary: [String]) async throws {
         guard SpeechTranscriber.isAvailable else { throw LocalError.notAvailable }
 
         let requested = Locale(identifier: languageCode.isEmpty ? Locale.current.identifier : languageCode)
-        let onPartial = self.onPartial
 
         let module: any SpeechModule
         let resultsTask: Task<String, Error>
@@ -86,16 +73,15 @@ final class LocalTranscriber {
             guard let locale = await SpeechTranscriber.supportedLocale(equivalentTo: requested) else {
                 throw LocalError.localeUnsupported(requested.identifier)
             }
-            // Volatile results give the live in-progress transcript; fastResults
-            // biases the module toward low latency over batch throughput.
+            // fastResults biases the module toward low latency over batch throughput.
             let transcriber = SpeechTranscriber(
                 locale: locale,
                 transcriptionOptions: [],
-                reportingOptions: [.volatileResults, .fastResults],
+                reportingOptions: [.fastResults],
                 attributeOptions: []
             )
             module = transcriber
-            resultsTask = Self.collect(transcriber.results.map { (String($0.text.characters), $0.isFinal) }, onPartial: onPartial)
+            resultsTask = Self.collect(transcriber.results.map { String($0.text.characters) })
         } else {
             guard let locale = await DictationTranscriber.supportedLocale(equivalentTo: requested) else {
                 throw LocalError.localeUnsupported(requested.identifier)
@@ -104,11 +90,11 @@ final class LocalTranscriber {
                 locale: locale,
                 contentHints: [.shortForm],
                 transcriptionOptions: [.punctuation],
-                reportingOptions: [.volatileResults, .frequentFinalization],
+                reportingOptions: [.frequentFinalization],
                 attributeOptions: []
             )
             module = transcriber
-            resultsTask = Self.collect(transcriber.results.map { (String($0.text.characters), $0.isFinal) }, onPartial: onPartial)
+            resultsTask = Self.collect(transcriber.results.map { String($0.text.characters) })
         }
 
         if let request = try await AssetInventory.assetInstallationRequest(supporting: [module]) {
@@ -142,31 +128,22 @@ final class LocalTranscriber {
             self.converter = nil
             let held = pendingBuffers
             pendingBuffers = []
-            sessionReady = true
             for buffer in held { ingest(buffer) }
             return held
         }
         log.info("local session started (\(requested.identifier, privacy: .public), \(vocabulary.isEmpty ? "SpeechTranscriber" : "DictationTranscriber + \(vocabulary.count) vocab terms", privacy: .public), flushed \(held.count, privacy: .public) held buffers)")
     }
 
-    /// Accumulates a module's result stream into the final transcript, feeding
-    /// `onPartial` along the way: finalized segments append; a non-final
-    /// (volatile) result is a revision of the current tail.
+    /// Accumulates a module's finalized result stream.
     private static func collect<S: AsyncSequence & Sendable>(
-        _ results: S,
-        onPartial: (@Sendable (String) -> Void)?
-    ) -> Task<String, Error> where S.Element == (String, Bool) {
+        _ results: S
+    ) -> Task<String, Error> where S.Element == String {
         Task {
-            var finalized = ""
-            for try await (text, isFinal) in results {
-                if isFinal {
-                    finalized += text
-                    onPartial?(finalized)
-                } else {
-                    onPartial?(finalized + text)
-                }
+            var transcript = ""
+            for try await text in results {
+                transcript += text
             }
-            return finalized.trimmingCharacters(in: .whitespacesAndNewlines)
+            return transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         }
     }
 
@@ -176,7 +153,7 @@ final class LocalTranscriber {
     func feed(_ buffer: AVAudioPCMBuffer) {
         lock.lock()
         defer { lock.unlock() }
-        guard sessionReady else {
+        guard inputBuilder != nil else {
             // ~85ms of audio per buffer at 48kHz/4096 frames; cap ≈ 25s so an
             // abandoned session can't accumulate audio forever.
             if pendingBuffers.count < 300 { pendingBuffers.append(buffer) }
@@ -226,27 +203,23 @@ final class LocalTranscriber {
         }
         guard let analyzer, let resultsTask else { throw LocalError.noSession }
         inputBuilder?.finish()
+        defer { teardown() }
         do {
             try await analyzer.finalizeAndFinishThroughEndOfInput()
-            let text = try await resultsTask.value
-            teardown()
-            return text
+            return try await resultsTask.value
         } catch {
             // Tear down on failure too — otherwise the dead session lingers
             // and the next startSession replaces it while it's still "live".
             resultsTask.cancel()
-            teardown()
             throw error
         }
     }
 
     /// Abandons the session (record-start failure, window closed mid-recording).
     func cancel() {
-        lock.lock()
-        let analyzer = self.analyzer
-        let resultsTask = self.resultsTask
-        let inputBuilder = self.inputBuilder
-        lock.unlock()
+        let (analyzer, resultsTask, inputBuilder) = lock.withLock {
+            (self.analyzer, self.resultsTask, self.inputBuilder)
+        }
         inputBuilder?.finish()
         resultsTask?.cancel()
         if let analyzer {
@@ -256,14 +229,13 @@ final class LocalTranscriber {
     }
 
     private func teardown() {
-        lock.lock()
-        analyzer = nil
-        inputBuilder = nil
-        analyzerFormat = nil
-        converter = nil
-        resultsTask = nil
-        pendingBuffers = []
-        sessionReady = false
-        lock.unlock()
+        lock.withLock {
+            analyzer = nil
+            inputBuilder = nil
+            analyzerFormat = nil
+            converter = nil
+            resultsTask = nil
+            pendingBuffers = []
+        }
     }
 }

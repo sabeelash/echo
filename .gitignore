@@ -11,6 +11,7 @@ build/
 
 # Local tool settings
 .claude/settings.local.json
+.tokensave/
 
 # Local environment and secrets
 .env

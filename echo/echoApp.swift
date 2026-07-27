@@ -10,42 +10,29 @@ import AppKit
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    let dictation = DictationController.shared
-
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        Permissions.logStatusOnLaunch()
         Permissions.requestMicrophone()
-        Permissions.checkAccessibility(prompt: true)
-        dictation.start()
+        Permissions.requestAccessibility()
+        DictationController.shared.start()
     }
 }
 
 @main
 struct echoApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    @State private var dictation = DictationController.shared
 
     var body: some Scene {
         MenuBarExtra {
             MenuBarView()
         } label: {
-            MenuBarLabel()
+            Image("MenuBarIcon")
         }
 
         Window("Groq API Key", id: "api-key") {
             APIKeyView()
         }
         .windowResizability(.contentSize)
-
-        // TEMPORARY stage-1 debug window for the record→transcribe round-trip.
-        // Debug builds only — stripped from exported/release builds.
-        #if DEBUG
-        Window("Debug", id: "debug") {
-            DebugView()
-        }
-        .windowResizability(.contentSize)
-        #endif
 
         Window("Custom Vocabulary", id: "vocabulary") {
             VocabularyView()
@@ -56,13 +43,5 @@ struct echoApp: App {
             HelpView()
         }
         .windowResizability(.contentSize)
-    }
-}
-
-/// The menu-bar label is intentionally passive at launch: the on-device
-/// transcriber is the default and does not require setup.
-private struct MenuBarLabel: View {
-    var body: some View {
-        Image("MenuBarIcon")
     }
 }

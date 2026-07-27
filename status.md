@@ -4,17 +4,15 @@
 
 - `echo/Permissions.swift` — logs to unified log (subsystem `sabeel.echo`, category `permissions`)
   - `requestMicrophone()` — smallest path to trigger mic prompt (`AVCaptureDevice.requestAccess`)
-  - `checkAccessibility(prompt:)` — `AXIsProcessTrustedWithOptions`; `isAccessibilityTrusted` for silent check
-  - `logStatusOnLaunch()` — logs mic + accessibility state, no prompt
-- Runs on launch (`echoApp.swift` → `applicationDidFinishLaunching`): log status, request mic, check accessibility
-- Menu bar dropdown has a **Request Permissions** button that re-runs all three
+  - `requestAccessibility()` — prompts through `AXIsProcessTrustedWithOptions`
+- Both run on launch and from the menu bar's **Request Permissions** button.
 
 ## Entitlements
 
 - App Sandbox **removed** — required so the AX paste path can control other apps
   - `ENABLE_APP_SANDBOX = NO` (Debug + Release), `echo.entitlements` emptied
   - Tradeoff: no Mac App Store; ship via Developer ID + notarization
-- Built app entitlements: `get-task-allow` (debug), `files.user-selected.read-only`
+- Built app entitlements: `get-task-allow` (debug), `device.audio-input`
 
 ## Permission strings
 
@@ -29,7 +27,6 @@ Built in three isolated stages (each verified before the next).
 - `echo/AudioRecorder.swift` — `AVAudioEngine` taps the mic, writes straight to **M4A (AAC)** in the temp dir. `start(inputDeviceUID:)` / `stop() -> URL`. Routes the input node to the chosen device (see Settings → Microphone) **before** reading the format, since sample rate/channels depend on the active device; falls back to system default if `uid` is nil or unplugged.
 - `echo/GroqClient.swift` — multipart upload to `https://api.groq.com/openai/v1/audio/transcriptions`. `transcribe(fileURL:key:model:language:prompt:)` takes key/model/language/prompt as params (no longer hardcoded); callers pass them from `AppSettings`. A non-empty `language` is sent as a hint (skips auto-detect); empty string = auto. A non-empty `prompt` is sent as the Groq `prompt` field (vocabulary + style steering — see **Transcription prompt** below); empty = omitted. Throws descriptive `GroqError` (missing key / HTTP code+body / decode failure).
   - **Groq `/audio/transcriptions` params** (reference): `file`/`url` (one required), `model` (required: `whisper-large-v3` / `whisper-large-v3-turbo`), `language` (ISO-639-1), `prompt` (≤224 tokens, style/spelling bias — **not** instruction-following), `response_format` (`json`/`verbose_json`/`text`, echo uses `json`), `temperature` (0–1, echo leaves at default 0), `timestamp_granularities[]` (needs `verbose_json`, unused). Files ≤25MB free / 100MB dev tier; downsampled to 16kHz mono server-side. Only `prompt` was worth wiring up — the rest are defaults or irrelevant to a paste-the-string flow.
-- `echo/DebugView.swift` — **temporary** debug `Window(id: "debug")` with a Record/Stop button driving the round-trip; prints transcript to console + shows it. Kept as a known-good fallback. Opened via menu bar **Open Debug…**. Delete once stage 2/3 are trusted.
 
 ### Stage 2 — Fn hotkey + recording indicator
 - `echo/FnHotkeyMonitor.swift` — detects Fn (Globe) hold/release via `NSEvent` `.flagsChanged` watching the `.function` flag (Fn is **not** a registerable hotkey, so KeyboardShortcuts/Carbon can't bind it; this is not a Carbon tap). Global + local monitors → clean `onPress`/`onRelease` edges (hold-to-talk). Needs Accessibility for the global monitor.
@@ -40,11 +37,11 @@ Built in three isolated stages (each verified before the next).
 ### Stage 3 — hybrid paste into focused field
 - `echo/Paster.swift` — `Paster.paste(_:)`:
   1. **AX first** — system-wide focused element, set `kAXSelectedTextAttribute` (inserts at caret, **no clipboard clobber**); only when the attribute is settable **and the write is verified** (see below).
-  2. **Clipboard fallback** — snapshot pasteboard (all items/types) → write text → synth ⌘V (`CGEvent`, keycode `0x09` + `.maskCommand`, `.cghidEventTap`) → wait **150ms** → restore. Covers Electron/web/terminals.
+  2. **Clipboard fallback** — snapshot pasteboard (all items/types) → provide the transcript lazily → synth ⌘V (`CGEvent`, keycode `0x09` + `.maskCommand`, `.cghidEventTap`) → restore after the target consumes it. Covers Electron/web/terminals.
 - **Browser paste bug + fix (must verify the AX write):** Chrome and WebKit web views report `kAXSelectedTextAttribute` as *settable* and `AXUIElementSetAttributeValue` returns `.success`, but the write is **silently dropped** — nothing lands in the field. The old code trusted the return code, declared success, and never reached the clipboard fallback → **nothing pasted in the browser**. Fix: snapshot `kAXNumberOfCharactersAttribute` before/after the set and require it grew (`after > before`); otherwise return `false` so the clipboard `⌘V` path runs. Use the *char count* (an `Int`), not full `kAXValueAttribute`, so verification doesn't copy an entire large document's text on every paste.
   - Edge case: a native control that honors the AX write but doesn't expose a char count routes through clipboard instead (correct, slightly slower). All standard AppKit text controls expose the count, so this is rare. Reading back the value text would close it but pays the expensive copy we're avoiding.
 - Rationale: AX is **not** meaningfully faster than clipboard — its real win is not destroying the user's clipboard. Paste latency is negligible vs upload+inference, so optimize paste for reliability, not speed.
-- Tunable: the 150ms restore delay is racy — too short → pastes old clipboard; too long → feels laggy. Fine as-is for now — no reports of it misfiring in practice.
+- If no app consumes the transcript within one second, Echo leaves it on the clipboard for manual recovery.
 
 ## Transcription prompt (vocabulary + style)
 
@@ -57,11 +54,11 @@ echo sends Groq a `prompt` to steer output. Key fact: **Whisper's prompt is cond
 - **Style** (`style: TranscriptionStyle`, persisted, default `.professional`) — menu picker under Model. Two cases, each with an `exemplar` written *in* its own style (since Whisper mimics):
   - `.professional` — proper-case, punctuated exemplar → clean sentences. Leaves Groq output untouched in post.
   - `.casual` — all-lowercase exemplar → relaxed output. **Plus deterministic post-processing**: `postProcess(_:)` force-lowercases the whole transcript (`text.lowercased()`) because the prompt bias alone can't stop Whisper capitalizing "I" / proper nouns / sentence starts. Trade-off: also lowercases vocab terms (`SwiftUI` → `swiftui`), consistent with "no capitalization at all."
-  - Applied in `DictationController` (real dictation) and `DebugView` (round-trip) right after `transcribe` returns, before paste/record, via `style.postProcess(raw)`.
+  - Applied in `DictationController` after transcription and before paste/record, via `style.postProcess(raw)`.
 
 **What the prompt can / can't do (for future styles):**
 - *Cheap & reliable (prompt bias ± regex/post-process):* casual/professional casing (done), filler-word removal (`um`/`uh`/`like` — best with a regex sweep, not just bias), numbers-as-digits, strip-trailing-period.
-- *Not possible via prompt — needs a second LLM pass:* bullet points, email formatting, grammar rephrase, summarize, translate. These mean transcribe → Groq `llama-*` cleanup → paste, adding a ~200–500ms round-trip that cuts against echo's "fastest" goal. Gate behind an explicit style if ever added; **not** a default. Next easy win considered: **filler-word removal** (not yet built).
+- *Not possible via prompt — needs a second LLM pass:* bullet points, email formatting, grammar rephrase, summarize, translate. These mean transcribe → Groq `llama-*` cleanup → paste, adding a ~200–500ms round-trip that cuts against echo's "fastest" goal.
 
 ## Speed optimizations (latency)
 
@@ -80,13 +77,12 @@ Both were listed as "planned" in CLAUDE.md, evaluated, and **rejected**. They pr
 - **VAD trim**: hold-to-talk already has minimal leading/trailing silence, so trimming saves ~2ms. Worse, the current recorder encodes AAC **during** recording inside the tap (overlapped, effectively free); any trim approach needs raw PCM and re-encodes **at stop**, moving the full ~30–80ms encode **onto** the critical path. **Net loss.**
 - Conclusion: don't re-add these. The remaining latency is **network RTT + request overhead** — addressed by pre-warm above. Streaming/chunked upload during recording was considered as a way to attack that slice, but Groq's `/audio/transcriptions` endpoint doesn't support streaming uploads, so that's not viable.
 
-## Local transcription prototype (SpeechTranscriber vs Groq)
+## Local transcription (SpeechTranscriber)
 
-Prototype for replacing/augmenting Groq with the on-device **SpeechAnalyzer / SpeechTranscriber** API (macOS 26 Speech framework). Motivation: the remaining Groq latency is network RTT + fixed request overhead (~1s), which no client-side work can remove; on-device streaming transcription removes the network entirely. Chosen over WhisperKit/whisper.cpp because the model asset is **system-managed** (`AssetInventory`) and inference runs **out of process** — zero cost to echo's ~32MB footprint, which matters on 8GB machines.
+The on-device path uses the **SpeechAnalyzer / SpeechTranscriber** API (macOS 26 Speech framework). The system manages the model asset (`AssetInventory`) and runs inference out of process.
 
-- `echo/LocalTranscriber.swift` — one streaming session: `startSession(languageCode:)` (maps ISO code via `supportedLocale(equivalentTo:)`, downloads model on first use, `prepareToAnalyze` preheats), `feed(_:)` (called on the audio tap thread; converts hardware format → analyzer's preferred `16kHz mono Int16` via `AVAudioConverter`, yields `AnalyzerInput` into an `AsyncStream`), `finish()` (ends input, `finalizeAndFinishThroughEndOfInput`, returns transcript). Reporting options `[.volatileResults, .fastResults]` → live partial text via `onPartial` while the user is still speaking. `modelRetention: .processLifetime` keeps the model warm across dictations.
-- `AudioRecorder.onBuffer` — optional side-channel handing raw tap buffers to the prototype alongside the file write; production Groq path untouched.
-- `echo/DebugView.swift` — head-to-head harness: one recording feeds both engines (file → Groq at stop; tap buffers → local *during* recording), both latencies measured from the same stop instant, shown side by side. Local pane updates live while speaking.
+- `echo/LocalTranscriber.swift` — one streaming session: `startSession(languageCode:vocabulary:)` maps the locale, installs the model if needed, and preheats it; `feed(_:)` converts and streams audio; `finish()` finalizes and returns the transcript. `modelRetention: .processLifetime` keeps the model warm across dictations.
+- `AudioRecorder.onBuffer` — optional side-channel handing raw tap buffers to the local transcriber alongside the fallback file write.
 - **Measured on the M1/8GB (CLI harness, 8.6s synthesized clip):** model already installed system-wide, `prepareToAnalyze` ~0.2s, **finalize latency 0.35s** after end of input (streaming path) / 0.25s (file convenience path), transcript verbatim-correct including "M1". Live dictation should be ≤ this, since audio streams in real time and only the tail needs finalizing at Fn-release. Groq round-trips are typically ~1s+ → local wins on latency; accuracy/vocab comparison needs real dictations via the Debug window.
 - Gotchas: `AVAudioFile.read(into:)` throws a bare `nilError` at exact EOF (bit the harness; live tap path unaffected). Volatile results can glitch mid-word ("speecheech") but finals are clean.
 - Style exemplars don't apply locally (only `postProcess` runs — casual lowercasing works, professional is a no-op anyway).
@@ -98,11 +94,11 @@ The local analogue of the Groq `prompt` is `AnalysisContext.contextualStrings` �
 - **Vocabulary empty → SpeechTranscriber** (`[.volatileResults, .fastResults]`) — better baseline accuracy + punctuation.
 - **Vocabulary set → DictationTranscriber** (`contentHints: [.shortForm]`, `transcriptionOptions: [.punctuation]`, `reportingOptions: [.volatileResults, .frequentFinalization]`) with `contextualStrings = [.general: terms]` attached via the `SpeechAnalyzer(inputSequence:…analysisContext:)` init.
 - A/B on the M1 (synthesized "I asked Sabeel to prewarm the Groq client before the WhisperKit comparison"): SpeechTranscriber ± vocab → "Sabiel / Grock / Whisper Kit" (vocab ignored); DictationTranscriber without vocab → "Samuel / grout client / whisper kit"; **DictationTranscriber with vocab → every term exact**, finalize 0.18s. Trade-off: DictationTranscriber's punctuation is lighter (dropped the trailing period), baseline slightly weaker — acceptable since it only runs when vocab is set, which is when the terms matter.
-- `AppSettings.vocabularyTerms` splits `vocabularyPrompt` on commas/newlines only (multi-word names survive); both `DictationController` and `DebugView` pass it. Vocabulary panel copy updated (comma-separated, hints both engines).
+- `AppSettings.vocabularyTerms` splits `vocabularyPrompt` on commas/newlines only (multi-word names survive); `DictationController` passes it to the local transcriber.
 
 ### Engine switch (wired into real dictation)
 
-`AppSettings.engine` (`TranscriptionEngine`: `.groq` default / `.local`, persisted) selects the dictation engine; top-level **Engine** picker in the menu bar (the Groq **Model** picker only shows when the engine is Groq).
+`AppSettings.engine` (`TranscriptionEngine`: `.local` default / `.groq`, persisted) selects the dictation engine; the Groq **Model** picker only shows when the engine is Groq.
 
 - **Fn-down** (`DictationController.beginRecording`): Groq → `prewarm()` as before; local → `recorder.onBuffer` streams tap buffers to `LocalTranscriber` and `startSession` runs concurrently in `localSession: Task`. Recording starts immediately either way — `LocalTranscriber.feed` holds early buffers under a lock (cap ~25s) and flushes them when the session comes up (~0.2–0.4s warm), so the first words aren't lost.
 - **Fn-up** (`endRecording`): local path awaits the session task then `local.finish()` (audio already streamed; just finalization), **capped at 10s** (`localFinishTimeout`, raced via a first-wins continuation — a task group can't race a hung `Task.value` since it ignores cancellation). **Any local failure or timeout falls back to Groq with the recorded m4a** — same audio, slower path, no lost speech; needs the API key only on that fallback. Without the cap, a hang (e.g. first-use model download) would wedge `phase` at `.transcribing` and kill dictation until relaunch. Empty transcripts are dropped (no paste, no stats bump).
@@ -123,16 +119,14 @@ No settings *window* — a Settings scene + pane existed briefly but was removed
   - `lastLatency: TimeInterval?` — round-trip seconds of the last transcription (the `dt` measured in `DictationController`), runtime-only; powers the menu's **Last: 1.2s** readout.
   - `transcriptionsToday: Int` / `totalWords: Int` — `private(set)`, **persisted**. Vanity/feedback stats shown in the menu.
   - `recordTranscription(_:latency:)` — single entry point called on every successful transcript: sets `lastTranscript` + `lastLatency`, bumps `transcriptionsToday` (resets at midnight via stored `countDate`), adds word count to `totalWords`. Replaces the old direct `lastTranscript =` assignment.
-  - `resolvedAPIKey: String?` — reads the user's Groq API key from macOS Keychain. On first launch without a saved key, echo opens the branded setup panel automatically; the same panel is available later from **Settings → Groq API Key…**.
 - `echo/AudioDevices.swift` — Core Audio enumeration of input devices (id/uid/name); filters to devices with ≥1 input channel. `deviceID(forUID:)` resolves a stored UID back to a current device at record time.
 
 ## Menu bar (`echo/ContentView.swift` → `MenuBarView`)
 - Status header (phase `Label`: Idle / Recording… / Transcribing…) · "Hold Fn to dictate" hint · — · Model · **Style** · Microphone (pickers → submenus, bound to `AppSettings`) · — · last-transcript preview (first ~40 chars, one line, shown only when non-empty) · Copy Last Transcript (→ pasteboard; disabled when empty) · — · **Last: 1.2s** · **N today · M words dictated** · — · **Settings** submenu · Quit
-- **Settings** submenu (`Menu("Settings")`) groups the secondary controls: Language picker · Request Permissions · Launch at Login · **Groq API Key…** (opens `Window(id: "api-key")`) · **Custom Vocabulary…** (opens `Window(id: "vocabulary")`) · Open Debug…. Keeps the top level focused on per-dictation choices (Model, Style, Microphone) + stats. Top-level quit button is **Quit Echo**.
+- **Settings** submenu (`Menu("Settings")`) groups the secondary controls: Language picker · Request Permissions · Launch at Login · **Groq API Key…** · **Custom Vocabulary…**. Top-level quit button is **Quit Echo**.
 - Plain `Text` / phase `Label` rows render as the standard grayed-out (non-interactive) menu labels — used for the header, hint, preview, and stats.
-- `MicrophonePicker` is its own view so it re-reads the device list from Core Audio (`onAppear`) each time the menu opens.
-- The menu observes `DictationController.shared` (singleton) for live `phase`, surfaced as the in-menu **status header** (`Label`: `circle` Idle / `record.circle` Recording… / `ellipsis.circle` Transcribing…). The `MenuBarExtra` icon itself is a **static custom asset** `Image("MenuBarIcon")` (set in `echoApp.swift`) — it does **not** change with phase. `DictationController.menuBarSymbol` exists but is currently unused (left over from the earlier phase-swapping icon).
-- Stats caveat: `transcriptionsToday` only rolls over to 0 on the next dictation after midnight (not on menu-open), so it can briefly show yesterday's count.
+- The microphone picker re-reads the device list from Core Audio when it appears.
+- The menu observes `DictationController.shared` for live `phase`, surfaced as the in-menu status header. The `MenuBarExtra` icon itself is a static custom asset.
 
 ## Packaging
 

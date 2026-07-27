@@ -2,10 +2,8 @@
 //  DictationController.swift
 //  echo
 //
-//  Ties the Fn hotkey to the record → transcribe round-trip and drives the
-//  recording overlay. Hold Fn to record; release to stop and transcribe.
-//  For now the transcript is printed to the console (paste-into-field is a
-//  later stage); the round-trip itself is the same one proven in stage 1.
+//  Ties the Fn hotkey to the record → transcribe → paste pipeline and drives
+//  the recording overlay.
 //
 
 import AppKit
@@ -20,7 +18,6 @@ final class DictationController {
 
     @ObservationIgnored private let log = Logger(subsystem: "sabeel.echo", category: "dictation")
     @ObservationIgnored private let recorder = AudioRecorder()
-    @ObservationIgnored private let groq = GroqClient()
     @ObservationIgnored private let local = LocalTranscriber()
     @ObservationIgnored private let hotkey = FnHotkeyMonitor()
     @ObservationIgnored private lazy var overlay = RecordingOverlay(controller: self)
@@ -49,7 +46,7 @@ final class DictationController {
     @ObservationIgnored private var activity: NSObjectProtocol?
 
     /// When the current hold started, for the accidental-tap check on release.
-    @ObservationIgnored private var recordingStartedAt: Date?
+    @ObservationIgnored private var recordingStartedAt = Date.distantPast
 
     private(set) var phase: Phase = .idle
 
@@ -72,7 +69,7 @@ final class DictationController {
         case .groq:
             // Warm the Groq connection now, while the user is still speaking, so
             // the upload on release reuses a live socket instead of handshaking.
-            groq.prewarm()
+            GroqClient.prewarm()
         case .local:
             // Recording starts immediately; the transcriber holds early tap
             // buffers until the model session is up, so no speech is lost.
@@ -147,7 +144,7 @@ final class DictationController {
 
         // An Fn tap this short is almost certainly accidental — discard rather
         // than upload a fraction of a syllable and paste garbage.
-        let held = Date().timeIntervalSince(recordingStartedAt ?? .distantPast)
+        let held = Date().timeIntervalSince(recordingStartedAt)
         if held < Self.minimumHold {
             log.info("Hold too short (\(held, privacy: .public)s) — discarding")
             discardRecording()
@@ -169,7 +166,6 @@ final class DictationController {
         log.info("Recording stopped (Fn up) — transcribing")
 
         let settings = AppSettings.shared
-        let key = settings.resolvedAPIKey
         let model = settings.model.rawValue
         let language = settings.languageCode
         let prompt = settings.groqPrompt
@@ -195,7 +191,7 @@ final class DictationController {
             }
 
             if raw == nil {
-                guard let key else {
+                guard let key = try? APIKeyStore.load() else {
                     log.error("transcribe skipped: no API key")
                     await flashError(session != nil
                         ? "On-device engine failed — no API key to fall back to"
@@ -203,7 +199,7 @@ final class DictationController {
                     return
                 }
                 do {
-                    raw = try await groq.transcribe(
+                    raw = try await GroqClient.transcribe(
                         fileURL: url, key: key, model: model, language: language, prompt: prompt
                     )
                 } catch {
@@ -291,8 +287,6 @@ final class DictationController {
     /// otherwise the status code / transport failure picks a category.
     private static func failureReason(for error: Error) -> String {
         switch error {
-        case GroqError.missingKey:
-            return "No API key — add one in Settings"
         case GroqError.badResponse:
             return "Unreadable response from Groq"
         case let GroqError.http(code, body):

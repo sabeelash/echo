@@ -2,10 +2,8 @@
 //  VocabularyView.swift
 //  echo
 //
-//  A small panel (styled like the Debug window) for editing the vocabulary
-//  hint sent to Groq as the transcription `prompt` — names, jargon, and
-//  acronyms echo should spell correctly. Edits write straight through to
-//  AppSettings, which persists them to UserDefaults.
+//  A small panel for editing names, jargon, and acronyms both transcription
+//  engines should recognize. Edits persist through AppSettings.
 //
 
 import SwiftUI

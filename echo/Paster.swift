@@ -122,7 +122,8 @@ enum Paster {
             log.info("Pasteboard changed while pasting — skipping restore")
             return true
         }
-        restore(saved, to: pb)
+        pb.clearContents()
+        if !saved.isEmpty { pb.writeObjects(saved) }
         return true
     }
 
@@ -155,11 +156,6 @@ enum Paster {
             }
             return copy
         }
-    }
-
-    private static func restore(_ items: [NSPasteboardItem], to pb: NSPasteboard) {
-        pb.clearContents()
-        if !items.isEmpty { pb.writeObjects(items) }
     }
 
     private static func sendCommandV() {

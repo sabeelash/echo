@@ -19,16 +19,11 @@ enum Permissions {
 
     // MARK: - Microphone
 
-    /// Current mic authorization without prompting.
-    static var microphoneStatus: AVAuthorizationStatus {
-        AVCaptureDevice.authorizationStatus(for: .audio)
-    }
-
     /// Smallest path that triggers the microphone permission request.
     /// If the user has already decided, the system does not prompt again and
     /// the completion fires immediately with the existing answer.
     static func requestMicrophone() {
-        let status = microphoneStatus
+        let status = AVCaptureDevice.authorizationStatus(for: .audio)
         log.info("Requesting microphone access (current status: \(string(for: status), privacy: .public))")
 
         AVCaptureDevice.requestAccess(for: .audio) { granted in
@@ -38,31 +33,12 @@ enum Permissions {
 
     // MARK: - Accessibility
 
-    /// Whether this process is trusted for the Accessibility API. Does not prompt.
-    static var isAccessibilityTrusted: Bool {
-        AXIsProcessTrusted()
-    }
-
-    /// Checks accessibility trust and, when `prompt` is true, asks macOS to show
-    /// the "open System Settings" dialog if the app is not yet trusted.
-    @discardableResult
-    static func checkAccessibility(prompt: Bool) -> Bool {
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): prompt] as CFDictionary
+    /// Checks accessibility trust and asks macOS to show the "open System
+    /// Settings" dialog if the app is not yet trusted.
+    static func requestAccessibility() {
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
         let trusted = AXIsProcessTrustedWithOptions(options)
-        log.info("Accessibility trusted: \(trusted ? "YES" : "NO", privacy: .public)\(prompt ? " (prompted)" : "", privacy: .public)")
-        return trusted
-    }
-
-    // MARK: - Launch-time status report
-
-    /// Logs the current state of both permissions. Called on every app launch.
-    static func logStatusOnLaunch() {
-        let mic = microphoneStatus
-        let ax = isAccessibilityTrusted
-        log.info("=== echo permission status ===")
-        log.info("Microphone:    \(string(for: mic), privacy: .public)")
-        log.info("Accessibility: \(ax ? "trusted" : "not trusted", privacy: .public)")
-        log.info("==============================")
+        log.info("Accessibility trusted: \(trusted ? "YES" : "NO", privacy: .public) (prompted)")
     }
 
     // MARK: - Helpers

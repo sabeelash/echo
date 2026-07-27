@@ -44,16 +44,14 @@ enum GroqModel: String, CaseIterable, Identifiable {
 
 /// A language echo can hint to Groq. `auto` omits the hint (Groq detects it,
 /// at the cost of an extra pass — slower, so English is the default).
-struct TranscriptionLanguage: Identifiable, Hashable {
+struct TranscriptionLanguage: Identifiable {
     let code: String   // ISO-639-1, or "" for auto
     let name: String
     var id: String { code }
 
-    static let auto = TranscriptionLanguage(code: "", name: "Auto-detect")
-
     /// Common picks up top; this isn't meant to be exhaustive.
     static let all: [TranscriptionLanguage] = [
-        .auto,
+        .init(code: "", name: "Auto-detect"),
         .init(code: "en", name: "English"),
         .init(code: "es", name: "Spanish"),
         .init(code: "fr", name: "French"),
@@ -166,7 +164,7 @@ final class AppSettings {
     /// any) followed by the selected style's exemplar, which Whisper mimics.
     var groqPrompt: String {
         let vocab = vocabularyPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        return [vocab, style.exemplar].filter { !$0.isEmpty }.joined(separator: " ")
+        return vocab.isEmpty ? style.exemplar : "\(vocab) \(style.exemplar)"
     }
 
     /// The vocabulary as individual terms, for the local engine's
@@ -196,7 +194,8 @@ final class AppSettings {
     /// The day `transcriptionsToday` belongs to, so we can reset across midnight.
     @ObservationIgnored private var countDate: Date
 
-    private init(defaults: UserDefaults = .standard) {
+    private init() {
+        let defaults = UserDefaults.standard
         self.defaults = defaults
         self.engine = defaults.string(forKey: Keys.engine)
             .flatMap(TranscriptionEngine.init(rawValue:)) ?? .local
@@ -236,10 +235,5 @@ final class AppSettings {
         countDate = Date()
         defaults.set(countDate, forKey: Keys.transcriptionsDate)
         defaults.set(transcriptionsToday, forKey: Keys.transcriptionsToday)
-    }
-
-    /// The Keychain-backed key the network layer should use.
-    var resolvedAPIKey: String? {
-        try? APIKeyStore.load()
     }
 }
