@@ -16,7 +16,7 @@ Groq's cloud-hosted Whisper models.
 - Xcode 26.6 or later to build from source
 - Microphone permission
 - Accessibility permission for global Fn-key monitoring and reliable pasting
-- A Groq API key when using the Groq engine or cloud fallback
+- A Groq API key when using the Groq engine
 
 ## Set up transcription
 
@@ -26,8 +26,7 @@ Keychain and can be changed later from **Settings → Groq API Key…**.
 Choose a transcription engine from the menu bar:
 
 - **On-device** streams audio through Apple's Speech framework for the lowest
-  latency. If local transcription fails, Echo can retry the recorded audio
-  through Groq.
+  latency.
 - **Groq** sends the recording to a selected Whisper model. Turbo favors speed;
   Large v3 favors accuracy.
 
