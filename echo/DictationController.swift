@@ -109,7 +109,7 @@ final class DictationController {
         AppSettings.shared.recordTranscription(text)
 
         // Hide Echo before inserting into the field that was previously focused.
-        phase = .idle
+        // Stay busy until pasting finishes so a new hold cannot overlap this task.
         overlay.hide()
         guard await Paster.paste(text) else {
             log.error("paste failed — transcript left on clipboard")

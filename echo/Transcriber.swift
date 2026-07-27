@@ -15,12 +15,16 @@ final class Transcriber {
         let errorDescription: String?
     }
 
+    private struct LocalSession {
+        let transcriber: LocalTranscriber
+        let startup: Task<Void, Error>
+    }
+
     private let log = Logger(subsystem: "sabeel.echo", category: "transcriber")
     private let groq = GroqClient()
-    private let local = LocalTranscriber()
 
     private var engine: TranscriptionEngine?
-    private var localSession: Task<Void, Error>?
+    private var localSession: LocalSession?
 
     /// Bounds local startup and finalization so a stalled system speech service
     /// cannot leave Echo stuck in its transcribing state.
@@ -40,9 +44,11 @@ final class Transcriber {
         case .local:
             let language = settings.languageCode
             let vocabulary = settings.vocabularyTerms
-            localSession = Task { [local] in
+            let local = LocalTranscriber()
+            let startup = Task {
                 try await local.startSession(languageCode: language, vocabulary: vocabulary)
             }
+            localSession = LocalSession(transcriber: local, startup: startup)
             return { [local] buffer in
                 local.feed(buffer)
             }
@@ -74,10 +80,11 @@ final class Transcriber {
         guard let session = localSession else { return }
         localSession = nil
 
-        // Let startup settle before cancelling so teardown cannot race setup.
-        Task { [local] in
-            _ = try? await session.value
-            local.cancel()
+        // Let startup settle before teardown. Each recording owns its own local
+        // transcriber, so delayed cleanup cannot cancel a newer recording.
+        Task {
+            _ = try? await session.startup.value
+            session.transcriber.cancel()
         }
     }
 
@@ -87,12 +94,9 @@ final class Transcriber {
         }
         localSession = nil
 
-        guard let text = await localTranscript(
-            session: session,
-            timeout: Self.localFinishTimeout
-        ) else {
+        guard let text = await localTranscript(session, timeout: Self.localFinishTimeout) else {
             log.error("local transcription failed or timed out")
-            local.cancel()
+            session.transcriber.cancel()
             throw Failure(
                 errorDescription: "On-device transcription failed — switch engines in Settings"
             )
@@ -125,7 +129,7 @@ final class Transcriber {
     /// Races local startup/finalization against a timeout. A task group cannot
     /// do this because awaiting `Task.value` ignores cancellation and would
     /// still wait for a stalled session while draining the group.
-    private func localTranscript(session: Task<Void, Error>, timeout: TimeInterval) async -> String? {
+    private func localTranscript(_ session: LocalSession, timeout: TimeInterval) async -> String? {
         await withCheckedContinuation { continuation in
             let resumed = OSAllocatedUnfairLock(initialState: false)
             let resumeOnce: @Sendable (String?) -> Void = { value in
@@ -137,10 +141,10 @@ final class Transcriber {
                 if first { continuation.resume(returning: value) }
             }
 
-            Task { [local, log] in
+            Task { [log] in
                 do {
-                    try await session.value
-                    resumeOnce(try await local.finish())
+                    try await session.startup.value
+                    resumeOnce(try await session.transcriber.finish())
                 } catch {
                     log.error("local transcription failed: \(error.localizedDescription, privacy: .public)")
                     resumeOnce(nil)
