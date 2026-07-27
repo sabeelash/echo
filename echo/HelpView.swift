@@ -30,8 +30,8 @@ struct HelpView: View {
                     }
 
                     section("Styles") {
-                        Text("**Professional** — clean sentences with proper capitalization and punctuation. Suited to email and documents.")
-                        Text("**Casual** — relaxed and all-lowercase, the way you'd type in chat.")
+                        Text("**Normal** — clean sentences with proper capitalization and punctuation. Suited to email and documents.")
+                        Text("**Lower Case** — relaxed and all-lowercase, the way you'd type in chat.")
                         Text("Both styles write numbers as digits — “3pm”, “$12,500”, “room 204”.")
                             .foregroundStyle(.secondary)
                     }

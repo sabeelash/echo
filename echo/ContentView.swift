@@ -11,19 +11,8 @@ import ServiceManagement
 struct MenuBarView: View {
     @Environment(\.openWindow) private var openWindow
     @State private var settings = AppSettings.shared
-    @State private var dictation = DictationController.shared
 
     var body: some View {
-        // Live state + hotkey reminder.
-        switch dictation.phase {
-        case .idle:         Label("Idle", systemImage: "circle")
-        case .recording:    Label("Recording…", systemImage: "record.circle")
-        case .transcribing: Label("Transcribing…", systemImage: "ellipsis.circle")
-        case .error:
-            Label(dictation.errorReason.isEmpty ? "Failed" : dictation.errorReason,
-                  systemImage: "exclamationmark.circle")
-        }
-
         // The active configuration at a glance, without opening Settings.
         Text(configSummary)
 
@@ -61,17 +50,6 @@ struct MenuBarView: View {
         Button("Copy Last Transcript") {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(settings.lastTranscript, forType: .string)
-        }
-        .disabled(settings.lastTranscript.isEmpty)
-
-        Button("Paste Last Transcript Again") {
-            let text = settings.lastTranscript
-            Task {
-                // Give the menu time to close and focus to return to the app
-                // the user was in before the paste lands.
-                try? await Task.sleep(for: .milliseconds(200))
-                await Paster.paste(text)
-            }
         }
         .disabled(settings.lastTranscript.isEmpty)
 
@@ -129,7 +107,7 @@ struct MenuBarView: View {
     }
 
     /// One-line summary of the active configuration, e.g.
-    /// "Groq · Turbo · Professional" or "On-device · Casual".
+    /// "Groq · Turbo · Normal" or "On-device · Lower Case".
     private var configSummary: String {
         var parts: [String]
         switch settings.engine {
