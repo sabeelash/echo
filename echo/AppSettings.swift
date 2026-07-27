@@ -14,15 +14,15 @@ import Observation
 /// large-v3, needs network + API key); local is the on-device SpeechAnalyzer
 /// (macOS 26) — no network round-trip, so lower latency (see status.md).
 enum TranscriptionEngine: String, CaseIterable, Identifiable {
-    case groq
     case local
+    case groq
 
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
-        case .groq: return "Groq — cloud"
-        case .local: return "On-device — fastest"
+        case .local: return "On-device"
+        case .groq: return "Groq"
         }
     }
 }
@@ -80,8 +80,8 @@ enum TranscriptionStyle: String, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .professional: return "Professional"
-        case .casual: return "Casual"
+        case .professional: return "Normal"
+        case .casual: return "Lower Case"
         }
     }
 

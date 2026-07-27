@@ -2,8 +2,8 @@
 //  DictationController.swift
 //  echo
 //
-//  Ties the Fn hotkey to the record → transcribe → paste pipeline and drives
-//  the recording overlay.
+//  Ties the Fn hotkey to the complete dictation flow:
+//  hold Fn → record → transcribe with the selected engine → paste.
 //
 
 import AppKit
@@ -27,9 +27,9 @@ final class DictationController {
     @ObservationIgnored private var localSession: Task<Void, Error>?
 
     /// How long Fn-up waits for the on-device engine — session startup (on
-    /// first use that includes the model download) plus finalization — before
-    /// giving up and falling back to Groq. Without a bound, a hang here would
-    /// wedge `phase` at .transcribing and disable dictation until relaunch.
+    /// first use that includes the model download) plus finalization. Without
+    /// a bound, a hang here would wedge `phase` at .transcribing and disable
+    /// dictation until relaunch.
     private static let localFinishTimeout: TimeInterval = 10
 
     /// Holds shorter than this are treated as accidental Fn taps: the recording
@@ -166,9 +166,6 @@ final class DictationController {
         log.info("Recording stopped (Fn up) — transcribing")
 
         let settings = AppSettings.shared
-        let model = settings.model.rawValue
-        let language = settings.languageCode
-        let prompt = settings.groqPrompt
         let style = settings.style
 
         Task {
@@ -176,40 +173,8 @@ final class DictationController {
             // is done, on every exit path, so temp doesn't accumulate .m4a files.
             defer { try? FileManager.default.removeItem(at: url) }
             let start = Date()
-            var raw: String?
-
-            // On-device first: the audio already streamed in during recording,
-            // so this is just finalization. Any failure or timeout falls
-            // through to Groq with the recorded file — same audio, slower
-            // path, no lost speech.
-            if let session {
-                raw = await localTranscript(session: session, timeout: Self.localFinishTimeout)
-                if raw == nil {
-                    log.error("local transcription failed or timed out — falling back to Groq")
-                    local.cancel()
-                }
-            }
-
-            if raw == nil {
-                guard let key = try? APIKeyStore.load() else {
-                    log.error("transcribe skipped: no API key")
-                    await flashError(session != nil
-                        ? "On-device engine failed — no API key to fall back to"
-                        : "No API key — add one in Settings")
-                    return
-                }
-                do {
-                    raw = try await GroqClient.transcribe(
-                        fileURL: url, key: key, model: model, language: language, prompt: prompt
-                    )
-                } catch {
-                    log.error("transcribe failed: \(error.localizedDescription, privacy: .public)")
-                    await flashError(Self.failureReason(for: error))
-                    return
-                }
-            }
-
-            let text = style.postProcess(raw ?? "")
+            guard let raw = await transcribe(url, localSession: session) else { return }
+            let text = style.postProcess(raw)
             let dt = Date().timeIntervalSince(start)
             guard !text.isEmpty else {
                 log.info("empty transcript — nothing to paste")
@@ -232,6 +197,44 @@ final class DictationController {
             // Paste is the last step on the critical path — release the
             // anti-throttling activity now that the cycle is complete.
             endActivity()
+        }
+    }
+
+    /// Uses only the engine selected when recording began. A local failure does
+    /// not silently send the recording to Groq; the user can switch engines in
+    /// Settings and try again.
+    private func transcribe(_ url: URL, localSession: Task<Void, Error>?) async -> String? {
+        if let localSession {
+            guard let text = await localTranscript(
+                session: localSession,
+                timeout: Self.localFinishTimeout
+            ) else {
+                log.error("local transcription failed or timed out")
+                local.cancel()
+                await flashError("On-device transcription failed — switch engines in Settings")
+                return nil
+            }
+            return text
+        }
+
+        let settings = AppSettings.shared
+        guard let key = try? APIKeyStore.load() else {
+            log.error("transcribe skipped: no API key")
+            await flashError("No API key — add one in Settings")
+            return nil
+        }
+        do {
+            return try await GroqClient.transcribe(
+                fileURL: url,
+                key: key,
+                model: settings.model.rawValue,
+                language: settings.languageCode,
+                prompt: settings.groqPrompt
+            )
+        } catch {
+            log.error("transcribe failed: \(error.localizedDescription, privacy: .public)")
+            await flashError(Self.failureReason(for: error))
+            return nil
         }
     }
 

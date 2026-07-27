@@ -24,7 +24,7 @@ struct APIKeyView: View {
             Text(hasSavedKey ? "Groq API Key" : "Set Up Groq")
                 .font(.headline)
 
-            Text("Echo uses your Groq API key for cloud transcription and as a fallback if on-device transcription fails.")
+            Text("Echo uses your Groq API key only when Groq is the selected transcription engine.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

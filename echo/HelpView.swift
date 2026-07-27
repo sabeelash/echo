@@ -30,8 +30,8 @@ struct HelpView: View {
                     }
 
                     section("Styles") {
-                        Text("**Professional** — clean sentences with proper capitalization and punctuation. Suited to email and documents.")
-                        Text("**Casual** — relaxed and all-lowercase, the way you'd type in chat.")
+                        Text("**Normal** — clean sentences with proper capitalization and punctuation. Suited to email and documents.")
+                        Text("**Lower Case** — relaxed and all-lowercase, the way you'd type in chat.")
                         Text("Both styles write numbers as digits — “3pm”, “$12,500”, “room 204”.")
                             .foregroundStyle(.secondary)
                     }
@@ -39,7 +39,7 @@ struct HelpView: View {
                     section("Engines") {
                         Text("**On-device** — Apple's speech model, running entirely on your Mac. The fastest option — no network round-trip — and your audio never leaves the machine.")
                         Text("**Groq** — Whisper running in the cloud. Extremely accurate and still quick, but needs an internet connection.")
-                        Text("If an on-device dictation fails, Echo automatically retries the same audio through Groq — you still get your text.")
+                        Text("Echo uses only the engine you select. If one isn't working, switch engines from the menu bar and try again.")
                             .foregroundStyle(.secondary)
                         Text("Your Groq API key is stored securely in macOS Keychain. You can update it from Settings → Groq API Key.")
                             .foregroundStyle(.secondary)
