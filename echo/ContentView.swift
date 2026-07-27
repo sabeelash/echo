@@ -34,6 +34,11 @@ struct MenuBarView: View {
                 Text(engine.displayName).tag(engine)
             }
         }
+        .onChange(of: settings.engine) { _, engine in
+            guard engine == .groq, settings.resolvedAPIKey == nil else { return }
+            NSApp.activate(ignoringOtherApps: true)
+            openWindow(id: "api-key")
+        }
 
         // The Groq model choice only matters on the cloud path.
         if settings.engine == .groq {

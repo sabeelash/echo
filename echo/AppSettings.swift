@@ -199,7 +199,7 @@ final class AppSettings {
     private init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         self.engine = defaults.string(forKey: Keys.engine)
-            .flatMap(TranscriptionEngine.init(rawValue:)) ?? .groq
+            .flatMap(TranscriptionEngine.init(rawValue:)) ?? .local
         self.languageCode = defaults.string(forKey: Keys.languageCode) ?? "en"
         self.model = defaults.string(forKey: Keys.model)
             .flatMap(GroqModel.init(rawValue:)) ?? .turbo

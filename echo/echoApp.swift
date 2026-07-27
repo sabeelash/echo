@@ -59,22 +59,10 @@ struct echoApp: App {
     }
 }
 
-/// The menu-bar label exists from app launch, so it is also a reliable place
-/// to trigger the one-time setup window before the menu itself is ever opened.
+/// The menu-bar label is intentionally passive at launch: the on-device
+/// transcriber is the default and does not require setup.
 private struct MenuBarLabel: View {
-    @Environment(\.openWindow) private var openWindow
-    @State private var checkedForAPIKey = false
-
     var body: some View {
         Image("MenuBarIcon")
-            .task {
-                guard !checkedForAPIKey else { return }
-                checkedForAPIKey = true
-                guard AppSettings.shared.resolvedAPIKey == nil else { return }
-
-                await Task.yield()
-                NSApp.activate(ignoringOtherApps: true)
-                openWindow(id: "api-key")
-            }
     }
 }
