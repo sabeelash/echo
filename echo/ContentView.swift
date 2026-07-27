@@ -87,12 +87,6 @@ struct MenuBarView: View {
                 openWindow(id: "vocabulary")
             }
 
-            #if DEBUG
-            Button("Open Debug…") {
-                NSApp.activate(ignoringOtherApps: true)
-                openWindow(id: "debug")
-            }
-            #endif
         }
 
         Button("Help…") {

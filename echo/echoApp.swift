@@ -37,15 +37,6 @@ struct echoApp: App {
         }
         .windowResizability(.contentSize)
 
-        // TEMPORARY stage-1 debug window for the record→transcribe round-trip.
-        // Debug builds only — stripped from exported/release builds.
-        #if DEBUG
-        Window("Debug", id: "debug") {
-            DebugView()
-        }
-        .windowResizability(.contentSize)
-        #endif
-
         Window("Custom Vocabulary", id: "vocabulary") {
             VocabularyView()
         }
