@@ -42,7 +42,8 @@ enum AudioDevices {
             guard isAlive(id),
                   hasInput(id),
                   let uid = stringProperty(id, kAudioDevicePropertyDeviceUID),
-                  let name = stringProperty(id, kAudioObjectPropertyName) else {
+                  let name = stringProperty(id, kAudioObjectPropertyName),
+                  uid != "CADefaultDeviceAggregate" else {
                 return nil
             }
             return AudioInputDevice(id: id, uid: uid, name: name)
