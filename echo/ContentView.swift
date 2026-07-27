@@ -149,6 +149,7 @@ private struct LaunchAtLoginToggle: View {
 private struct MicrophonePicker: View {
     @State private var settings = AppSettings.shared
     @State private var devices: [AudioInputDevice] = []
+    @State private var deviceObserver: AudioDeviceChangeObserver?
 
     var body: some View {
         Picker("Microphone", selection: $settings.inputDeviceUID) {
@@ -157,6 +158,19 @@ private struct MicrophonePicker: View {
                 Text(device.name).tag(Optional(device.uid))
             }
         }
-        .onAppear { devices = AudioDevices.inputDevices() }
+        .onAppear {
+            refreshDevices()
+            if deviceObserver == nil {
+                deviceObserver = AudioDevices.observeChanges(refreshDevices)
+            }
+        }
+    }
+
+    private func refreshDevices() {
+        devices = AudioDevices.inputDevices()
+        if let selected = settings.inputDeviceUID,
+           !devices.contains(where: { $0.uid == selected }) {
+            settings.inputDeviceUID = nil
+        }
     }
 }

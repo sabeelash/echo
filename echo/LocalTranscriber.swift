@@ -20,6 +20,7 @@ final class LocalTranscriber {
         case notAvailable
         case localeUnsupported(String)
         case noSession
+        case conversionFailed
 
         var errorDescription: String? {
             switch self {
@@ -29,6 +30,8 @@ final class LocalTranscriber {
                 return "SpeechTranscriber does not support the language “\(code)”."
             case .noSession:
                 return "No local transcription session is running."
+            case .conversionFailed:
+                return "The microphone's audio format could not be converted."
             }
         }
     }
@@ -119,7 +122,7 @@ final class LocalTranscriber {
         let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [module])
         try await analyzer.prepareToAnalyze(in: format)
 
-        let held: [AVAudioPCMBuffer] = lock.withLock {
+        let (held, accepted): ([AVAudioPCMBuffer], Bool) = lock.withLock {
             self.analyzer = analyzer
             self.analyzerFormat = format
             self.inputBuilder = continuation
@@ -128,8 +131,15 @@ final class LocalTranscriber {
             let held = pendingBuffers
             pendingBuffers = []
             sessionReady = true
-            for buffer in held { ingest(buffer) }
-            return held
+            var accepted = true
+            for buffer in held {
+                if !ingest(buffer) { accepted = false }
+            }
+            return (held, accepted)
+        }
+        guard accepted else {
+            cancel()
+            throw LocalError.conversionFailed
         }
         log.info("local session started (\(requested.identifier, privacy: .public), \(vocabulary.isEmpty ? "SpeechTranscriber" : "DictationTranscriber + \(vocabulary.count) vocab terms", privacy: .public), flushed \(held.count, privacy: .public) held buffers)")
     }
@@ -150,34 +160,45 @@ final class LocalTranscriber {
     /// Streams one hardware-format tap buffer into the analyzer. Runs on the
     /// audio tap thread. Safe to call before the session is up — early buffers
     /// are held and flushed when `startSession` completes.
-    func feed(_ buffer: AVAudioPCMBuffer) {
+    func feed(_ buffer: AVAudioPCMBuffer) -> Bool {
         lock.lock()
         defer { lock.unlock() }
         guard sessionReady else {
             // ~85ms of audio per buffer at 48kHz/4096 frames; cap ≈ 25s so an
             // abandoned session can't accumulate audio forever.
             if pendingBuffers.count < 300 { pendingBuffers.append(buffer) }
-            return
+            return true
         }
-        ingest(buffer)
+        return ingest(buffer)
     }
 
     /// Converts one buffer to the module's preferred format and yields it to
     /// the analyzer. Must be called with `lock` held.
-    private func ingest(_ buffer: AVAudioPCMBuffer) {
-        guard let inputBuilder else { return }
+    private func ingest(_ buffer: AVAudioPCMBuffer) -> Bool {
+        guard let inputBuilder else { return false }
+        guard buffer.format.sampleRate > 0, buffer.format.channelCount > 0 else {
+            log.error("invalid local input format")
+            return false
+        }
         guard let analyzerFormat, analyzerFormat != buffer.format else {
+            converter = nil
             inputBuilder.yield(AnalyzerInput(buffer: buffer))
-            return
+            return true
         }
-        if converter == nil {
-            converter = AVAudioConverter(from: buffer.format, to: analyzerFormat)
+        if converter?.inputFormat != buffer.format {
+            guard let converter = AVAudioConverter(from: buffer.format, to: analyzerFormat) else {
+                log.error("no local converter for \(buffer.format.sampleRate, privacy: .public) Hz, \(buffer.format.channelCount, privacy: .public) ch")
+                return false
+            }
+            self.converter = converter
         }
-        guard let converter else { return }
+        guard let converter else { return false }
 
         let ratio = analyzerFormat.sampleRate / buffer.format.sampleRate
         let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 64
-        guard let out = AVAudioPCMBuffer(pcmFormat: analyzerFormat, frameCapacity: capacity) else { return }
+        guard let out = AVAudioPCMBuffer(pcmFormat: analyzerFormat, frameCapacity: capacity) else {
+            return false
+        }
 
         var fed = false
         var convError: NSError?
@@ -187,11 +208,14 @@ final class LocalTranscriber {
             inStatus.pointee = .haveData
             return buffer
         }
-        guard status != .error, out.frameLength > 0 else {
+        guard status != .error else {
             if let convError { log.error("local convert failed: \(convError.localizedDescription, privacy: .public)") }
-            return
+            return false
         }
+        guard out.frameLength > 0 else { return true }
+
         inputBuilder.yield(AnalyzerInput(buffer: out))
+        return true
     }
 
     /// Ends input, finalizes whatever the analyzer hasn't settled yet, and

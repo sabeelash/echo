@@ -18,7 +18,7 @@ struct AudioInputDevice: Identifiable, Hashable {
 }
 
 enum AudioDevices {
-    /// All devices that expose at least one input channel.
+    /// All connected devices that expose at least one input channel.
     static func inputDevices() -> [AudioInputDevice] {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDevices,
@@ -39,7 +39,8 @@ enum AudioDevices {
         }
 
         return ids.compactMap { id in
-            guard hasInput(id),
+            guard isAlive(id),
+                  hasInput(id),
                   let uid = stringProperty(id, kAudioDevicePropertyDeviceUID),
                   let name = stringProperty(id, kAudioObjectPropertyName) else {
                 return nil
@@ -51,6 +52,25 @@ enum AudioDevices {
     /// Current AudioDeviceID for a stored UID, or nil if it's not plugged in.
     static func deviceID(forUID uid: String) -> AudioDeviceID? {
         inputDevices().first { $0.uid == uid }?.id
+    }
+
+    /// Refreshes a microphone picker when Core Audio adds or removes a device.
+    static func observeChanges(_ onChange: @escaping () -> Void) -> AudioDeviceChangeObserver {
+        AudioDeviceChangeObserver(onChange: onChange)
+    }
+
+    private static func isAlive(_ id: AudioDeviceID) -> Bool {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyDeviceIsAlive,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        guard AudioObjectHasProperty(id, &address) else { return true }
+
+        var alive: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        let status = AudioObjectGetPropertyData(id, &address, 0, nil, &size, &alive)
+        return status == noErr && alive != 0
     }
 
     private static func hasInput(_ id: AudioDeviceID) -> Bool {
@@ -93,5 +113,25 @@ enum AudioDevices {
         }
         guard status == noErr else { return nil }
         return value as String?
+    }
+}
+
+/// Owns Core Audio's device-list listener and removes it on deinit.
+final class AudioDeviceChangeObserver {
+    private let system = AudioObjectID(kAudioObjectSystemObject)
+    private var address = AudioObjectPropertyAddress(
+        mSelector: kAudioHardwarePropertyDevices,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain
+    )
+    private let listener: AudioObjectPropertyListenerBlock
+
+    init(onChange: @escaping () -> Void) {
+        listener = { _, _ in onChange() }
+        AudioObjectAddPropertyListenerBlock(system, &address, .main, listener)
+    }
+
+    deinit {
+        AudioObjectRemovePropertyListenerBlock(system, &address, .main, listener)
     }
 }

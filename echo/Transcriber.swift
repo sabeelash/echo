@@ -29,7 +29,7 @@ final class Transcriber {
     /// Prepares the selected engine while the user speaks. Local transcription
     /// returns a handler for streaming live audio; Groq only needs prewarming.
     @MainActor
-    func prepare() -> ((AVAudioPCMBuffer) -> Void)? {
+    func prepare() -> ((AVAudioPCMBuffer) -> Bool)? {
         let settings = AppSettings.shared
         engine = settings.engine
 
@@ -43,7 +43,9 @@ final class Transcriber {
             localSession = Task { [local] in
                 try await local.startSession(languageCode: language, vocabulary: vocabulary)
             }
-            return { [local] buffer in local.feed(buffer) }
+            return { [local] buffer in
+                local.feed(buffer)
+            }
         }
     }
 

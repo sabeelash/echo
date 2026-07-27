@@ -36,6 +36,7 @@ final class DictationController {
     private(set) var errorReason: String = ""
 
     func start() {
+        recorder.onInterruption = { [weak self] in self?.handleAudioInterruption() }
         hotkey.onPress = { [weak self] in self?.beginRecording() }
         hotkey.onRelease = { [weak self] in self?.finishRecording() }
         hotkey.onCancel = { [weak self] in self?.cancelRecording() }
@@ -121,6 +122,12 @@ final class DictationController {
     private func cancelRecording() {
         guard phase == .recording else { return }
         log.info("Recording cancelled (Esc)")
+        discardRecording()
+    }
+
+    private func handleAudioInterruption() {
+        guard phase == .recording else { return }
+        log.info("Audio input changed — discarding recording")
         discardRecording()
     }
 
