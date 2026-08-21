@@ -2,9 +2,8 @@
 //  HelpView.swift
 //  echo
 //
-//  A small reference panel (styled like the Vocabulary window): shortcuts,
-//  what each style does, how the two engines relate, and permission
-//  troubleshooting. Purely informational — nothing here writes settings.
+//  The help window shows shortcuts, styles, engines, and permission steps.
+//  The window does not change settings.
 //
 
 import SwiftUI
@@ -17,39 +16,39 @@ struct HelpView: View {
                 .foregroundStyle(.red)
                 .frame(width: 28, height: 28)
 
-            Text("How Echo works")
+            Text("Use Echo")
                 .font(.headline)
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     section("Shortcuts") {
                         Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
-                            shortcutRow("Hold Fn", "Dictate. Speak while you hold, release to paste.")
-                            shortcutRow("Esc", "Cancel while dictating. Nothing is transcribed or pasted.")
+                            shortcutRow("Hold Fn", "Echo starts dictation while you hold the key. Echo pastes the text when you release the key.")
+                            shortcutRow("Esc", "Echo cancels dictation. Echo does not transcribe or paste the audio.")
                         }
                     }
 
                     section("Styles") {
-                        Text("**Normal** — clean sentences with proper capitalization and punctuation. Suited to email and documents.")
-                        Text("**Lower Case** — relaxed and all-lowercase, the way you'd type in chat.")
-                        Text("Both styles write numbers as digits — “3pm”, “$12,500”, “room 204”.")
+                        Text("**Normal** adds capitalization and punctuation. Use this style for email and documents.")
+                        Text("**Lower Case** uses lowercase text. Use this style for chat.")
+                        Text("Both styles use digits for numbers, such as “3 PM,” “$12,500,” and “room 204.”")
                             .foregroundStyle(.secondary)
                     }
 
                     section("Engines") {
-                        Text("**On-device** — Apple's speech model, running entirely on your Mac. The fastest option — no network round-trip — and your audio never leaves the machine.")
-                        Text("**Groq** — Whisper running in the cloud. Extremely accurate and still quick, but needs an internet connection.")
-                        Text("Echo uses only the engine you select. If one isn't working, switch engines from the menu bar and try again.")
+                        Text("**On-device** uses Apple’s speech model on your Mac. This engine does not send audio over the internet.")
+                        Text("**Groq** sends audio to a Whisper model in the cloud. This engine needs an internet connection.")
+                        Text("Echo uses only the selected engine. If the selected engine does not work, select the other engine from the menu bar.")
                             .foregroundStyle(.secondary)
-                        Text("Your Groq API key is stored securely in macOS Keychain. You can update it from Settings → Groq API Key.")
+                        Text("Echo stores your Groq API key in macOS Keychain. To change the key, select Settings → Groq API Key.")
                             .foregroundStyle(.secondary)
                     }
 
                     section("Permissions") {
-                        Text("Echo needs two permissions, both in System Settings → Privacy & Security:")
-                        Text("**Microphone** — so Echo can hear you. If dictations come back empty, check this first.")
-                        Text("**Accessibility** — powers the Fn hotkey and instant paste. Without it, the hotkey won't respond and pasting can silently fail.")
-                        Text("The quickest fix: choose Settings → Request Permissions from the menu bar and grant both.")
+                        Text("Echo needs Microphone and Accessibility permissions. Manage these permissions in System Settings → Privacy & Security.")
+                        Text("**Microphone** lets Echo record your speech. If a transcript is empty, check this permission.")
+                        Text("**Accessibility** lets Echo detect the Fn key and paste text. Echo cannot do these actions without this permission.")
+                        Text("If Echo does not have both permissions, use Settings → Request Permissions to grant both permissions.")
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -60,7 +59,7 @@ struct HelpView: View {
         .frame(width: 440, height: 480)
     }
 
-    /// A titled block: small secondary header above the content rows.
+    /// This view shows a small title above its content.
     @ViewBuilder
     private func section(_ title: String, @ViewBuilder content: () -> some View) -> some View {
         VStack(alignment: .leading, spacing: 8) {

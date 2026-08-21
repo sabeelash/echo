@@ -12,6 +12,11 @@
 //  far end. A 16 kHz mono 32 kbps file is several times smaller — a smaller,
 //  faster upload (the dominant slice of the round-trip) with no accuracy loss.
 //
+//  Each recording builds its own AVAudioEngine and tears it down at stop. A
+//  reused engine holds a stale audio graph after the input route changes
+//  (e.g. AirPods connect), which made the next hold fail while this one
+//  succeeded. A fresh engine always negotiates against current hardware.
+//
 
 import AVFoundation
 import AudioToolbox
@@ -33,14 +38,14 @@ final class AudioRecorder {
     }
 
     private let log = Logger(subsystem: "sabeel.echo", category: "recorder")
-    private var engine = AVAudioEngine()
+    private var engine: AVAudioEngine?
     private var file: AVAudioFile?
     /// Resamples the hardware tap buffers down to the file's 16 kHz mono format.
     private var converter: AVAudioConverter?
     private var configurationObserver: NSObjectProtocol?
     private var tapInstalled = false
-    private var engineInvalidated = false
-    private let interruptionState = OSAllocatedUnfairLock(initialState: false)
+    /// Coalesces duplicate interruption signals from Core Audio and the tap thread.
+    private let interruptionSignaled = OSAllocatedUnfairLock(initialState: false)
 
     private(set) var outputURL: URL?
     private(set) var isRecording = false
@@ -57,14 +62,13 @@ final class AudioRecorder {
     /// selects a specific mic by its Core Audio UID; nil uses the system default.
     func start(inputDeviceUID: String? = nil) throws {
         guard !isRecording else { throw RecorderError.alreadyRecording }
-        discardStaleState()
 
-        interruptionState.withLock { $0 = false }
-        engineInvalidated = false
-        let activeEngine = engine
+        let engine = AVAudioEngine()
+        self.engine = engine
+        interruptionSignaled.withLock { $0 = false }
 
         do {
-            let input = activeEngine.inputNode
+            let input = engine.inputNode
             let selectedDevice = selectInputDevice(uid: inputDeviceUID, on: input)
 
             // A selected physical device exposes its hardware format on the
@@ -96,28 +100,27 @@ final class AudioRecorder {
                 bufferSize: 4096,
                 format: selectedDevice ? format : nil
             ) {
-                [weak self, weak activeEngine] buffer, _ in
-                guard let self, let activeEngine else { return }
+                [weak self, weak engine] buffer, _ in
+                guard let self, let engine else { return }
 
                 let transcriberAccepted = self.onBuffer?(buffer) ?? true
                 let recorderAccepted = self.append(buffer)
                 if !transcriberAccepted || !recorderAccepted {
-                    self.signalInterruption("Audio conversion failed", on: activeEngine)
+                    self.signalInterruption("Audio conversion failed", on: engine)
                 }
             }
             tapInstalled = true
 
-            activeEngine.prepare()
-            try activeEngine.start()
-            guard activeEngine.isRunning else { throw RecorderError.formatUnavailable }
+            engine.prepare()
+            try engine.start()
+            guard engine.isRunning else { throw RecorderError.formatUnavailable }
 
             isRecording = true
-            observeConfigurationChanges(on: activeEngine)
-            guard activeEngine.isRunning else { throw RecorderError.formatUnavailable }
+            observeConfigurationChanges(on: engine)
+            guard engine.isRunning else { throw RecorderError.formatUnavailable }
             log.info("Recording → \(url.lastPathComponent, privacy: .public)")
         } catch {
-            let partialRecording = tearDown(replaceEngine: true)
-            if let partialRecording {
+            if let partialRecording = tearDown() {
                 try? FileManager.default.removeItem(at: partialRecording)
             }
             throw error
@@ -175,17 +178,17 @@ final class AudioRecorder {
         }
     }
 
-    private func observeConfigurationChanges(on activeEngine: AVAudioEngine) {
+    private func observeConfigurationChanges(on engine: AVAudioEngine) {
         if let configurationObserver {
             NotificationCenter.default.removeObserver(configurationObserver)
         }
         configurationObserver = NotificationCenter.default.addObserver(
             forName: .AVAudioEngineConfigurationChange,
-            object: activeEngine,
+            object: engine,
             queue: nil
-        ) { [weak self, weak activeEngine] _ in
-            guard let self, let activeEngine else { return }
-            self.signalInterruption("Audio engine configuration changed", on: activeEngine)
+        ) { [weak self, weak engine] _ in
+            guard let self, let engine else { return }
+            self.signalInterruption("Audio engine configuration changed", on: engine)
         }
     }
 
@@ -193,7 +196,7 @@ final class AudioRecorder {
     /// work to the main queue. AVAudioEngine must not be destroyed in its own
     /// configuration-change notification callback.
     private func signalInterruption(_ reason: String, on activeEngine: AVAudioEngine) {
-        let first = interruptionState.withLock { signaled -> Bool in
+        let first = interruptionSignaled.withLock { signaled -> Bool in
             guard !signaled else { return false }
             signaled = true
             return true
@@ -204,7 +207,6 @@ final class AudioRecorder {
         DispatchQueue.main.async { [weak self, weak activeEngine] in
             guard let self, let activeEngine else { return }
             guard self.engine === activeEngine, self.isRecording else { return }
-            self.engineInvalidated = true
             self.onInterruption()
         }
     }
@@ -237,47 +239,31 @@ final class AudioRecorder {
     @discardableResult
     func stop() -> URL? {
         guard isRecording else { return nil }
-        let recording = tearDown(replaceEngine: engineInvalidated)
+        let recording = tearDown()
         log.info("Stopped. File: \(recording?.lastPathComponent ?? "nil", privacy: .public)")
         return recording
     }
 
-    /// Clears any partially-created state before a new transaction begins.
-    private func discardStaleState() {
-        guard tapInstalled || file != nil || outputURL != nil || configurationObserver != nil else {
-            return
-        }
-        let staleRecording = tearDown(replaceEngine: true)
-        if let staleRecording {
-            try? FileManager.default.removeItem(at: staleRecording)
-        }
-    }
-
-    /// Removes everything associated with the current recording. Abnormal
-    /// teardown also replaces the engine so a poisoned graph cannot leak into
-    /// the next Fn hold.
-    private func tearDown(replaceEngine: Bool) -> URL? {
-        let activeEngine = engine
+    /// Removes everything associated with the current recording, including the
+    /// engine itself — the next hold builds a fresh graph against whatever the
+    /// current hardware route is.
+    private func tearDown() -> URL? {
         if let configurationObserver {
             NotificationCenter.default.removeObserver(configurationObserver)
             self.configurationObserver = nil
         }
         if tapInstalled {
-            activeEngine.inputNode.removeTap(onBus: 0)
+            engine?.inputNode.removeTap(onBus: 0)
             tapInstalled = false
         }
-        activeEngine.stop()
-        if replaceEngine {
-            activeEngine.reset()
-            engine = AVAudioEngine()
-        }
+        engine?.stop()
+        engine = nil
 
         let recording = outputURL
         file = nil
         converter = nil
         outputURL = nil
         isRecording = false
-        engineInvalidated = false
         return recording
     }
 }
