@@ -8,8 +8,8 @@
 //       which inserts at the caret (or replaces the selection) WITHOUT touching
 //       the user's clipboard. Only attempted when the element reports the
 //       attribute as settable.
-//    2. Fallback: write to the pasteboard, synthesize ⌘V, briefly wait for the
-//       target app, then restore the previous pasteboard contents.
+//    2. Fallback: write to the pasteboard and synthesize ⌘V, then restore the
+//       previous pasteboard contents after the target reads the transcript.
 //
 //  Both paths require Accessibility permission, which echo requests at launch.
 //
@@ -22,7 +22,8 @@ import os
 enum Paster {
     private static let log = Logger(subsystem: "sabeel.echo", category: "paste")
 
-    /// Returns whether Echo could prepare and send the paste.
+    /// Returns whether the text observably landed. False means neither path
+    /// worked; the transcript is left on the clipboard so ⌘V can recover it.
     @discardableResult
     static func paste(_ text: String) async -> Bool {
         guard !text.isEmpty else { return true }
@@ -81,18 +82,28 @@ enum Paster {
         let pb = NSPasteboard.general
         let saved = snapshot(pb)
 
+        let provider = ConsumptionTrackingProvider(text: text)
+        let item = NSPasteboardItem()
+        item.setDataProvider(provider, forTypes: [.string])
         pb.clearContents()
-        guard pb.setString(text, forType: .string) else {
-            restore(saved, to: pb)
-            return false
-        }
+        pb.writeObjects([item])
         let ourChangeCount = pb.changeCount
 
         guard sendCommandV() else {
             log.error("Couldn't synthesize ⌘V — leaving transcript on clipboard")
             return false
         }
-        try? await Task.sleep(for: .milliseconds(150))
+
+        let deadline = ContinuousClock.now.advanced(by: .seconds(1))
+        while !provider.consumed && ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        try? await Task.sleep(for: .milliseconds(50))
+
+        guard provider.consumed else {
+            log.error("Paste not consumed — leaving transcript on clipboard")
+            return false
+        }
 
         // Don't overwrite a clipboard change made while the paste was in flight.
         guard pb.changeCount == ourChangeCount else {
@@ -101,6 +112,27 @@ enum Paster {
         }
         restore(saved, to: pb)
         return true
+    }
+
+    /// Supplies the transcript lazily and records when the target reads it.
+    private final class ConsumptionTrackingProvider: NSObject, NSPasteboardItemDataProvider, @unchecked Sendable {
+        private let text: String
+        private let state = OSAllocatedUnfairLock(initialState: false)
+
+        var consumed: Bool { state.withLock { $0 } }
+
+        init(text: String) {
+            self.text = text
+        }
+
+        func pasteboard(
+            _ pasteboard: NSPasteboard?,
+            item: NSPasteboardItem,
+            provideDataForType type: NSPasteboard.PasteboardType
+        ) {
+            item.setString(text, forType: type)
+            state.withLock { $0 = true }
+        }
     }
 
     private static func snapshot(_ pb: NSPasteboard) -> [NSPasteboardItem] {
