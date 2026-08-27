@@ -11,26 +11,21 @@ Groq's cloud-hosted Whisper models.
 You'll need macOS 26.5 or later and if you are using the Groq's cloud-hosted Whisper models,
 a Groq API key.
 
-## Set up transcription
+## Quick Start
 
-Echo opens the Groq API key panel on first launch. The key is stored in macOS
+1. Echo opens the Groq API key panel on first launch. The key is stored in macOS
 Keychain and can be changed later from **Settings → Groq API Key…**.
-
-Choose a transcription engine from the menu bar:
-
-- **On-device** streams audio through Apple's Speech framework for the lowest
-  latency.
-- **Groq** sends the recording to a selected Whisper model. Turbo favors speed;
+2. Choose a transcription engine from the menu bar.
+  - **On-device** streams audio through Apple's Speech framework for the lowest
+  latency. This is the default.
+  - **Groq** sends the recording to a selected Whisper model. Turbo favors speed;
   Large v3 favors accuracy.
+3. Focus any editable text field.
+4. Hold **Fn** and speak.
+5. Release **Fn**.
+6. Echo transcribes the recording and pastes the result at the cursor.
 
-## Use Echo
-
-1. Focus any editable text field.
-2. Hold **Fn** and speak.
-3. Release **Fn**.
-4. Echo transcribes the recording and pastes the result at the cursor.
-
-The menu bar also provides engine, model, style, microphone, language,
+The menu bar also provides model, style (a lowercase version for casual texting), microphone, language,
 vocabulary, and last-transcript controls.
 
 ## Distribution
