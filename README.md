@@ -2,21 +2,14 @@
   <img src="docs/echo-logo.svg" width="360" alt="Echo logo and wordmark">
 </p>
 
-# Echo
-
-Echo is a fast, native macOS dictation app. Hold the Fn key, speak, and release
-to paste the transcript into the field you were using.
+Echo is a fast, native macOS dictation app. Hold the `Fn` key, speak, and release
+to paste the transcript into the field you were using. Think WhisprFlow or Monologue or Superhuman.
 
 It runs quietly in the menu bar and supports both on-device transcription and
 Groq's cloud-hosted Whisper models.
 
-## Requirements
-
-- macOS 26.5 or later
-- Xcode 26.6 or later to build from source
-- Microphone permission
-- Accessibility permission for global Fn-key monitoring and reliable pasting
-- A Groq API key when using the Groq engine
+You'll need macOS 26.5 or later and if you are using the Groq's cloud-hosted Whisper models,
+a Groq API key.
 
 ## Set up transcription
 
